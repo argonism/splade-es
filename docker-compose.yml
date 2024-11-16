@@ -1,0 +1,50 @@
+version: "3"
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    environment:
+      node.name: elasticsearch
+      cluster.name: es-docker-cluster
+      discovery.type: single-node
+      bootstrap.memory_lock: true
+      xpack.security.enabled: false
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es1vol:/usr/share/elasticsearch
+    ports:
+      - 9200:9200
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sk http://localhost:9200/ | grep -q 'You Know, for Search'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
+    container_name: kibana
+    ports:
+      - 5601:5601
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=user
+      - ELASTICSEARCH_PASSWORD=pass
+    depends_on:
+      - elasticsearch
+
+
+volumes:
+  es1vol:
+    driver: local
+  kibanadata:
+    driver: local
+  certs:
+    driver: local

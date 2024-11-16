@@ -1,0 +1,19 @@
+[project]
+name = "splade-es"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "elasticsearch>=8.16.0",
+    "mdfy>=0.5.0",
+    "pydantic>=2.9.2",
+    "ranx>=0.3.19",
+    "torch==2.3.0",
+    "transformers==4.40.2",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.7.3",
+]
