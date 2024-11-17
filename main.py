@@ -68,7 +68,10 @@ def main(args: Args):
     dataset = get_dataset(args.dataset)
 
     search_model = get_search_model(args.model)(
-        es_client, dataset, reset_index=args.reset_index
+        es_client,
+        dataset,
+        reset_index=args.reset_index,
+        device=args.device
     )
 
     corpus: Iterable[Doc] = dataset.corpus_iter()

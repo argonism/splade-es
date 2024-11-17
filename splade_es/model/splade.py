@@ -1,15 +1,14 @@
-from typing import Iterable, Generator
-from itertools import batched
 import logging
+from itertools import batched
+from typing import Generator, Iterable
 
-from elasticsearch import Elasticsearch
-from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
+from elasticsearch import Elasticsearch
 from tqdm import tqdm
+from transformers import AutoModelForMaskedLM, AutoTokenizer
 
+from splade_es.dataset.base import DatasetBase, Doc, Query
 from splade_es.model.base import SearchModelBase, SearchResultType
-from splade_es.dataset.base import DatasetBase, Query, Doc
-
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +28,14 @@ INDEX_SCHEMA = {
 
 class SpladeEncoder(object):
     def __init__(
-        self, encoder_path: str, device: str = "cpu", verbose: bool = True
+        self, encoder_path: str, device: str, verbose: bool = True
     ) -> None:
         self.splade = AutoModelForMaskedLM.from_pretrained(encoder_path)
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_path)
         self.vocab_dict = {v: k for k, v in self.tokenizer.get_vocab().items()}
         self.verbose = verbose
 
+        logger.debug("loading to device: %s", device)
         self.device = device
         self.splade.to(device)
 
@@ -102,10 +102,11 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
         dataset: DatasetBase,
         reset_index: bool = False,
         encoder_path: str = "naver/splade-v3",
+        device: str = "cpu",
         **kwargs,
     ) -> None:
         super().__init__(es_client, dataset, reset_index=reset_index, **kwargs)
-        self.splade = SpladeEncoder(encoder_path=encoder_path)
+        self.splade = SpladeEncoder(encoder_path=encoder_path, device=device)
 
     def _make_properties(self) -> dict:
         return {}
