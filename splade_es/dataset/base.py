@@ -16,6 +16,7 @@ class Query(BaseModel):
     def id(self):
         return self.query_id
 
+
 class DatasetBase:
     name: str
     doc_type: Type[Doc]

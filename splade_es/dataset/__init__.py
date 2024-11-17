@@ -5,7 +5,13 @@ from splade_es.dataset.beir import Nfcorpus, Arguana, SciFact, Scidocs, TrecCovi
 
 logger = logging.getLogger(__name__)
 
-DATASETS = {"nfcorpus": Nfcorpus, "arguana": Arguana, "scifact": SciFact, "scidocs": Scidocs, "trec-covid": TrecCovid}
+DATASETS = {
+    "nfcorpus": Nfcorpus,
+    "arguana": Arguana,
+    "scifact": SciFact,
+    "scidocs": Scidocs,
+    "trec-covid": TrecCovid,
+}
 
 
 def get_dataset(key: str) -> DatasetBase:

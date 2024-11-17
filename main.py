@@ -1,21 +1,20 @@
-from os import environ
 import logging
 from argparse import ArgumentParser
+from os import environ
 from pathlib import Path
 from typing import Iterable
 
-from pydantic import BaseModel, Field, ConfigDict
-from elasticsearch import Elasticsearch
 import ranx
+from elasticsearch import Elasticsearch
+from pydantic import BaseModel, ConfigDict, Field
 
-from splade_es.dataset import get_dataset, Doc
+from splade_es.dataset import Doc, get_dataset
 from splade_es.model import get_search_model
-from splade_es.utils import make_dir_if_exists, dump_to_json
-
+from splade_es.utils import dump_to_json, make_dir_if_exists
 
 logger = logging.getLogger("splade_es")
 handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s-[%(name)s][%(levelname)s] %(message)s')
+formatter = logging.Formatter("%(asctime)s-[%(name)s][%(levelname)s] %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
@@ -35,6 +34,7 @@ class Args(BaseModel):
 
     dataset: str = Field("nfcorpus", alias="d")
     model: str = Field("bm25", alias="m")
+    device: str = Field("cpu")
 
     reset_index: bool = Field(False)
     debug: bool = Field(False)
@@ -43,7 +43,6 @@ class Args(BaseModel):
     def from_parse_args(cls) -> "Args":
         parser = ArgumentParser()
         for field_name, info in cls.model_fields.items():
-
             arg_params = []
             if info.alias is not None:
                 arg_params.append(f"-{info.alias}")
@@ -68,7 +67,9 @@ def main(args: Args):
 
     dataset = get_dataset(args.dataset)
 
-    search_model = get_search_model(args.model)(es_client, dataset, reset_index=args.reset_index)
+    search_model = get_search_model(args.model)(
+        es_client, dataset, reset_index=args.reset_index
+    )
 
     corpus: Iterable[Doc] = dataset.corpus_iter()
     if args.debug:

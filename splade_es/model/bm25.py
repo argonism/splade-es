@@ -12,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 INDEX_SCHEMA = {
     "settings": {},
-    "mappings": {
-        "properties": {
-        }
-    },
+    "mappings": {"properties": {}},
 }
 
 
@@ -50,10 +47,13 @@ class ESBM25(SearchModelBase, model_name="bm25", index_schema=INDEX_SCHEMA):
 
         queries = list(queries)
 
-
         search_result = {}
-        for batch_queries in tqdm(batched(queries, 500), desc="searching batch queries"):
-            res = self.client.msearch(searches=yield_query(batch_queries), index=self.index_name)
+        for batch_queries in tqdm(
+            batched(queries, 500), desc="searching batch queries"
+        ):
+            res = self.client.msearch(
+                searches=yield_query(batch_queries), index=self.index_name
+            )
             for response, query in zip(res["responses"], batch_queries):
                 search_result[query.id] = {
                     hit["_id"]: hit["_score"] for hit in response["hits"]["hits"]

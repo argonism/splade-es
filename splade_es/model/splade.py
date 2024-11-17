@@ -28,7 +28,9 @@ INDEX_SCHEMA = {
 
 
 class SpladeEncoder(object):
-    def __init__(self, encoder_path: str, device: str = "cpu", verbose: bool = True) -> None:
+    def __init__(
+        self, encoder_path: str, device: str = "cpu", verbose: bool = True
+    ) -> None:
         self.splade = AutoModelForMaskedLM.from_pretrained(encoder_path)
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_path)
         self.vocab_dict = {v: k for k, v in self.tokenizer.get_vocab().items()}
@@ -42,7 +44,15 @@ class SpladeEncoder(object):
 
     def _encode_texts(self, texts: list[str], batch_size: int) -> torch.Tensor:
         outputs: list[torch.Tensor] = []
-        iterator = tqdm(batched(texts, batch_size), total=len(texts) // batch_size, desc="Encoding texts") if self.verbose else batched(texts, batch_size)
+        iterator = (
+            tqdm(
+                batched(texts, batch_size),
+                total=len(texts) // batch_size,
+                desc="Encoding texts",
+            )
+            if self.verbose
+            else batched(texts, batch_size)
+        )
         for batch in iterator:
             tokenized = self.tokenizer(
                 batch, return_tensors="pt", padding=True, truncation=True
@@ -83,9 +93,7 @@ class SpladeEncoder(object):
         return expand_terms_list
 
 
-class ESSplade(
-    SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA
-):
+class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
     VECTOR_FIELD = "splade_for_search"
 
     def __init__(
@@ -106,16 +114,15 @@ class ESSplade(
         texts = []
         for doc in docs:
             text = " ".join(
-                [
-                    getattr(doc, field, "")
-                    for field in ["title", "url", "text"]
-                ]
+                [getattr(doc, field, "") for field in ["title", "url", "text"]]
             )
             texts.append(text)
         return texts
 
     def index(self, docs: Iterable[Doc]) -> None:
-        def _make_bulk_insert_body(docs: Iterable[Doc], sparse_vectores: list[dict[str, float]]) -> Generator:
+        def _make_bulk_insert_body(
+            docs: Iterable[Doc], sparse_vectores: list[dict[str, float]]
+        ) -> Generator:
             for doc, sparse_vector in zip(docs, sparse_vectores):
                 doc_fields = {
                     field: self._make_body(getattr(doc, field))
@@ -128,7 +135,9 @@ class ESSplade(
         batch_size = 5000
         docs_indexed = 0
         for batch_docs in tqdm(
-            batched(docs, batch_size), total=self.dataset.docs_count // batch_size, desc="splade index"
+            batched(docs, batch_size),
+            total=self.dataset.docs_count // batch_size,
+            desc="splade index",
         ):
             field_texts = self._get_text_for_encode(batch_docs)
 
@@ -171,7 +180,9 @@ class ESSplade(
             res = self.client.msearch(
                 searches=yield_query(queries_vectors), index=self.index_name
             )
-            for response, query, queries_vector in zip(res["responses"], batch_queries, queries_vectors):
+            for response, query, queries_vector in zip(
+                res["responses"], batch_queries, queries_vectors
+            ):
                 if "error" in response:
                     logger.error("error: %s", response)
                     logger.error("queries_vector: %s", queries_vector)

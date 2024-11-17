@@ -19,6 +19,7 @@ def make_dir_if_exists(path: Path) -> bool:
         return True
     return False
 
+
 def dump_to_json(dict: dict, path: Path, indent: int = 2) -> None:
     if not path.parent.exists():
         make_dir_if_exists(path.parent)
