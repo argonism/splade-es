@@ -8,8 +8,8 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
 from tqdm import tqdm
 
-from src.model.base import SearchModelBase, SearchResultType
-from src.dataset.base import DatasetBase, Query, Doc
+from splade_es.model.base import SearchModelBase, SearchResultType
+from splade_es.dataset.base import DatasetBase, Query, Doc
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ INDEX_SCHEMA = {
 
 
 class SpladeEncoder(object):
-    def __init__(self, encoder_path: str, device: str = "cpu", verbose: bool = True) -> None:
+    def __init__(self, encoder_path: str, device: str = "cuda:0", verbose: bool = True) -> None:
         self.splade = AutoModelForMaskedLM.from_pretrained(encoder_path)
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_path)
         self.vocab_dict = {v: k for k, v in self.tokenizer.get_vocab().items()}
@@ -47,7 +47,7 @@ class SpladeEncoder(object):
         for batch in iterator:
             tokenized = self.tokenizer(
                 batch, return_tensors="pt", padding=True, truncation=True
-            )
+            ).to(self.device)
             # MLM output (input length x vocab size)
             output = self.splade(**tokenized, return_dict=True).logits
             # max-pooling against each token's vocab size vectors
@@ -94,7 +94,7 @@ class ESSplade(
         es_client: Elasticsearch,
         dataset: DatasetBase,
         reset_index: bool = False,
-        encoder_path: str = "naver/splade-v3-doc",
+        encoder_path: str = "naver/splade-v3",
         **kwargs,
     ) -> None:
         super().__init__(es_client, dataset, reset_index=reset_index, **kwargs)
@@ -108,8 +108,8 @@ class ESSplade(
         for doc in docs:
             text = " ".join(
                 [
-                    getattr(doc, field)
-                    for field in self.dataset.doc_text_fields
+                    getattr(doc, field, "")
+                    for field in ["title", "url", "text"]
                 ]
             )
             texts.append(text)
@@ -126,7 +126,8 @@ class ESSplade(
                 yield {"index": {"_index": self.index_name, "_id": doc.doc_id}}
                 yield doc_fields
 
-        batch_size = 10000
+        batch_size = 5000
+        docs_indexed = 0
         for batch_docs in tqdm(
             batched(docs, batch_size), total=self.dataset.docs_count // batch_size, desc="splade index"
         ):
@@ -138,9 +139,14 @@ class ESSplade(
                 operations=_make_bulk_insert_body(batch_docs, sparse_vectors),
             )
 
-        logger.info("Indexed %d documents", len(self.dataset.docs_count))
+            docs_indexed += len(sparse_vectors)
+
+        logger.info("Indexed %d documents", docs_indexed)
 
     def search(self, queries: Iterable[Query]) -> SearchResultType:
+        queries = list(queries)
+        logger.info("Searching with %s", len(queries))
+
         def yield_query(query_vectors: Iterable[dict[str, float]]):
             for query in query_vectors:
                 yield {"index": self.index_name}
@@ -153,11 +159,10 @@ class ESSplade(
                     }
                 }
 
-        queries = list(queries)
         n = 1000
         search_result = {}
         for batch_queries in tqdm(
-            batched(queries, n), "splade batch query", total=len(queries) // n
+            batched(queries, n), "Batch query", total=len(queries) // n
         ):
             queries_vectors = self.splade.weight_and_expand(
                 [query.text for query in batch_queries]
@@ -168,11 +173,14 @@ class ESSplade(
             )
             for response, query, queries_vector in zip(res["responses"], batch_queries, queries_vectors):
                 if "error" in response:
-                    print(f"error: {response}")
-                    print(f"queries_vector: {queries_vector}")
+                    logger.error("error: %s", response)
+                    logger.error("queries_vector: %s", queries_vector)
                     continue
 
                 search_result[query.id] = {
                     hit["_id"]: hit["_score"] for hit in response["hits"]["hits"]
                 }
+
+        logger.info("Retrieved %s results", len(search_result))
+
         return search_result

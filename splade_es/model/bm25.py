@@ -4,8 +4,8 @@ from typing import Iterable
 from tqdm import tqdm
 from itertools import batched
 
-from src.model.base import SearchModelBase, SearchResultType
-from src.dataset.base import Doc, Query
+from splade_es.model.base import SearchModelBase, SearchResultType
+from splade_es.dataset.base import Doc, Query
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,6 @@ class ESBM25(SearchModelBase, model_name="bm25", index_schema=INDEX_SCHEMA):
                     hit["_id"]: hit["_score"] for hit in response["hits"]["hits"]
                 }
 
-        print("Retrieved %d search results", len(search_result))
+        logger.info("Retrieved %d search results", len(search_result))
 
         return search_result

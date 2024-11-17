@@ -4,7 +4,7 @@ from collections import defaultdict
 from tqdm import tqdm
 import ir_datasets
 
-from src.dataset.base import DatasetBase, Doc, Query, Qrels
+from splade_es.dataset.base import DatasetBase, Doc, Query, Qrels
 
 
 class BeirQuery(Query):
@@ -79,3 +79,48 @@ class ArguanaDoc(Doc):
 class Arguana(BeirDataset, name="arguana", doc_type=ArguanaDoc):
     def __init__(self) -> None:
         super().__init__("beir/arguana")
+
+
+class SciFactDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class SciFact(BeirDataset, name="scifact", doc_type=SciFactDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/scifact/test")
+
+
+class ScidocsDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class Scidocs(BeirDataset, name="scidocs", doc_type=ScidocsDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/scidocs")
+
+
+class TrecCovidDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class TrecCovid(BeirDataset, name="trec-covid", doc_type=TrecCovidDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/trec-covid")

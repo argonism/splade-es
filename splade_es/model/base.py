@@ -4,7 +4,7 @@ import logging
 
 from elasticsearch import Elasticsearch
 
-from src.dataset.base import Doc, Query, DatasetBase
+from splade_es.dataset.base import Doc, Query, DatasetBase
 
 
 SearchResultType = dict[str, dict[str, float | int]]
@@ -69,8 +69,7 @@ class SearchModelBase(object):
         mappings["properties"] = mappings["properties"] | self._make_properties()
 
         logger.info("Creating index %s", self.index_name)
-        print(f"{self.dataset.doc_text_fields=}")
-        print(mappings)
+
         self.client.indices.create(
             index=self.index_name,
             settings=self.index_schema["settings"],

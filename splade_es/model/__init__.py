@@ -1,6 +1,6 @@
-from src.model.base import SearchModelBase
-from src.model.bm25 import ESBM25
-from src.model.splade import ESSplade
+from splade_es.model.base import SearchModelBase
+from splade_es.model.bm25 import ESBM25
+from splade_es.model.splade import ESSplade
 
 MODELS = {
     "bm25": ESBM25, "splade": ESSplade
