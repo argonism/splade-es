@@ -2,7 +2,6 @@ from os import environ
 import logging
 from argparse import ArgumentParser
 from pathlib import Path
-import json
 from typing import Iterable
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -104,8 +103,8 @@ def main(args: Args):
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    args = Args.from_parse_args()
 
+    args = Args.from_parse_args()
     logger.debug("args: %s", args)
-    print(args)
+
     main(args)
