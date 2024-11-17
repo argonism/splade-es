@@ -1,7 +1,16 @@
 import logging
 
 from splade_es.dataset.base import DatasetBase, Doc, Query
-from splade_es.dataset.beir import Nfcorpus, Arguana, SciFact, Scidocs, TrecCovid
+from splade_es.dataset.beir import (
+    Arguana,
+    FiQA,
+    Nfcorpus,
+    Quora,
+    Scidocs,
+    SciFact,
+    Touchev2,
+    TrecCovid,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +20,9 @@ DATASETS = {
     "scifact": SciFact,
     "scidocs": Scidocs,
     "trec-covid": TrecCovid,
+    "quora": Quora,
+    "fiqa": FiQA,
+    "touche": Touchev2,
 }
 
 

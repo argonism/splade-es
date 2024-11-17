@@ -1,10 +1,10 @@
-from typing import Iterable, Generator
 from collections import defaultdict
+from typing import Generator, Iterable
 
-from tqdm import tqdm
 import ir_datasets
+from tqdm import tqdm
 
-from splade_es.dataset.base import DatasetBase, Doc, Query, Qrels
+from splade_es.dataset.base import DatasetBase, Doc, Qrels, Query
 
 
 class BeirQuery(Query):
@@ -124,3 +124,48 @@ class TrecCovidDoc(Doc):
 class TrecCovid(BeirDataset, name="trec-covid", doc_type=TrecCovidDoc):
     def __init__(self) -> None:
         super().__init__("beir/trec-covid")
+
+
+class QuoraDoc(Doc):
+    doc_id: str
+    text: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class Quora(BeirDataset, name="quora", doc_type=QuoraDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/quora/test")
+
+
+class FiQADoc(Doc):
+    doc_id: str
+    text: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class FiQA(BeirDataset, name="fiqa", doc_type=FiQADoc):
+    def __init__(self) -> None:
+        super().__init__("beir/fiqa/test")
+
+
+class Touchev2Doc(Doc):
+    doc_id: str
+    text: str
+    title: str
+    stance: str
+    url: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class Touchev2(BeirDataset, name="touche", doc_type=Touchev2Doc):
+    def __init__(self) -> None:
+        super().__init__("beir/webis-touche2020/v2")
