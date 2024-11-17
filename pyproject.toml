@@ -1,9 +1,9 @@
 [project]
-name = "splade-es"
+name = "splade_es"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = "==3.12"
 dependencies = [
     "elasticsearch>=8.16.0",
     "mdfy>=0.5.0",
