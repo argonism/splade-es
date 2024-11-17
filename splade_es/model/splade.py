@@ -169,7 +169,7 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                     "size": 100,
                 }
 
-        n = 1000
+        n = 250
         search_result = {}
         for batch_queries in tqdm(
             batched(queries, n), "Batch query", total=len(queries) // n
