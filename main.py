@@ -1,11 +1,17 @@
 from os import environ
 import logging
+from argparse import ArgumentParser
+from pathlib import Path
+import json
+from typing import Iterable
 
+from pydantic import BaseModel, Field, ConfigDict
 from elasticsearch import Elasticsearch
 import ranx
 
-from splade_es.dataset import get_dataset
+from splade_es.dataset import get_dataset, Doc
 from splade_es.model import get_search_model
+from splade_es.utils import make_dir_if_exists, dump_to_json
 
 
 logger = logging.getLogger("splade_es")
@@ -15,27 +21,69 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
 
+output_base_dir = Path(__file__).parent / "output"
+make_dir_if_exists(output_base_dir)
 
-def main():
+run_dir = output_base_dir / "run"
+make_dir_if_exists(run_dir)
+
+eval_dir = output_base_dir / "eval"
+make_dir_if_exists(eval_dir)
+
+
+class Args(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    dataset: str = Field("nfcorpus", alias="d")
+    model: str = Field("bm25", alias="m")
+
+    reset_index: bool = Field(False)
+    debug: bool = Field(False)
+
+    @classmethod
+    def from_parse_args(cls) -> "Args":
+        parser = ArgumentParser()
+        for field_name, info in cls.model_fields.items():
+
+            arg_params = []
+            if info.alias is not None:
+                arg_params.append(f"-{info.alias}")
+            arg_params.append(f"--{field_name}")
+
+            kwargs = {}
+            if info.default is not None:
+                kwargs["default"] = info.default
+            if info.annotation is not None:
+                if info.annotation is bool:
+                    kwargs["action"] = "store_true"
+                else:
+                    kwargs["type"] = info.annotation
+
+            parser.add_argument(*arg_params, **kwargs)
+
+        return cls(**vars(parser.parse_args()))
+
+
+def main(args: Args):
     es_client = Elasticsearch(environ["ELASTICSEARCH_URL"])
 
-    dataset_name = "scifact"
-    dataset = get_dataset(dataset_name)
+    dataset = get_dataset(args.dataset)
 
-    # search_model = get_search_model("bm25")(es_client, dataset, reset_index=True)
-    search_model = get_search_model("splade")(es_client, dataset, reset_index=True)
+    search_model = get_search_model(args.model)(es_client, dataset, reset_index=args.reset_index)
 
-    DEBUG = False
-    corpus = dataset.corpus_iter()
-    if DEBUG:
+    corpus: Iterable[Doc] = dataset.corpus_iter()
+    if args.debug:
         corpus = [doc for i, doc in enumerate(dataset.corpus_iter()) if i < 3]
 
     search_model.index(corpus)
     search_result = search_model.search(dataset.queries)
 
-    # Print 10 search result examples:
+    run_path = run_dir / f"{args.model}/{args.dataset}.json"
+    dump_to_json(search_result, run_path)
+
+    # Print 5 search result examples:
     for result in list(search_result.values())[:5]:
-        print(f"{result}")
+        logger.debug("%s", result)
 
     run = ranx.Run(search_result)
     metrics = [
@@ -47,8 +95,17 @@ def main():
         "recall@20",
     ]
     eval_result = ranx.evaluate(dataset.qrels, run, metrics=metrics)
+
+    eval_path = eval_dir / f"{args.model}/{args.dataset}.json"
+    dump_to_json(eval_result, eval_path)
+
     print(eval_result)
+
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    main()
+    args = Args.from_parse_args()
+
+    logger.debug("args: %s", args)
+    print(args)
+    main(args)
