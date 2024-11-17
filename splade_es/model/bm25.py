@@ -44,7 +44,8 @@ class ESBM25(SearchModelBase, model_name="bm25", index_schema=INDEX_SCHEMA):
                             "query": query.text,
                             "fields": self.dataset.doc_text_fields,
                         }
-                    }
+                    },
+                    "size": 100,
                 }
 
         queries = list(queries)

@@ -1,5 +1,4 @@
 from typing import Iterable, Generator
-import re
 from itertools import batched
 import logging
 
@@ -29,7 +28,7 @@ INDEX_SCHEMA = {
 
 
 class SpladeEncoder(object):
-    def __init__(self, encoder_path: str, device: str = "cuda:0", verbose: bool = True) -> None:
+    def __init__(self, encoder_path: str, device: str = "cpu", verbose: bool = True) -> None:
         self.splade = AutoModelForMaskedLM.from_pretrained(encoder_path)
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_path)
         self.vocab_dict = {v: k for k, v in self.tokenizer.get_vocab().items()}
@@ -156,7 +155,8 @@ class ESSplade(
                             "query_vector": query,
                             "field": self.VECTOR_FIELD,
                         }
-                    }
+                    },
+                    "size": 100,
                 }
 
         n = 1000
