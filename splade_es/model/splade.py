@@ -2,6 +2,7 @@ import logging
 from collections import deque
 from typing import Generator, Iterable
 from itertools import batched
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk, parallel_bulk, BulkIndexError
@@ -140,34 +141,38 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
 
         batch_size = 5000
         docs_indexed = 0
-        for batch_docs in tqdm(
-            batched(docs, batch_size),
-            total=self.dataset.docs_count // batch_size,
-            desc="splade index",
-        ):
-            field_texts = self._get_text_for_encode(batch_docs)
+        max_workers=10
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for batch_docs in tqdm(
+                batched(docs, batch_size),
+                total=self.dataset.docs_count // batch_size,
+                desc="splade index",
+            ):
+                field_texts = self._get_text_for_encode(batch_docs)
 
-            sparse_vectors = self.splade.weight_and_expand(field_texts)
+                sparse_vectors = self.splade.weight_and_expand(field_texts)
 
-
-            try:
-                bulk(
-                    self.client,
-                    _make_bulk_insert_body(batch_docs, sparse_vectors),
-                    index=self.index_name,
+                futures.append(
+                    executor.submit(
+                        bulk,
+                        self.client,
+                        list(_make_bulk_insert_body(batch_docs, sparse_vectors)),
+                        index=self.index_name,
+                    )
                 )
-                # deque(parallel_bulk(
-                #     self.client,
-                #     _make_bulk_insert_body(batch_docs, sparse_vectors),
-                #     index=self.index_name,
-                # ), maxlen=0)
-            except BulkIndexError as e:
-                logger.error("BulkIndexError")
-                logger.error("errors: %s", e.errors)
-                raise e
 
+            for future in as_completed(futures):
+                try:
+                    success_count, errors = future.result()
+                    if errors:
+                        logger.error("errors: %s", errors)
+                    docs_indexed += success_count
+                except BulkIndexError as e:
+                    logger.error("BulkIndexError")
+                    logger.error("errors: %s", e.errors)
+                    raise e
 
-            docs_indexed += len(sparse_vectors)
 
         logger.info("Indexed %d documents", docs_indexed)
 
