@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 from os import environ
 from pathlib import Path
 from typing import Iterable
+import time
 
 import ranx
 from elasticsearch import Elasticsearch
@@ -78,15 +79,22 @@ def main(args: Args):
     if args.debug:
         corpus = [doc for i, doc in enumerate(dataset.corpus_iter()) if i < 3]
 
+    start = time.perf_counter()
     search_model.index(corpus)
+    end = time.perf_counter()
+    logger.info("Indexing took %.2f seconds", end - start)
+
+    start = time.perf_counter()
     search_result = search_model.search(dataset.queries)
+    end = time.perf_counter()
+    logger.info("Searching took %.2f seconds", end - start)
 
     run_path = run_dir / f"{args.model}/{args.dataset}.json"
     dump_to_json(search_result, run_path)
 
     # Print 5 search result examples:
     for result in list(search_result.values())[:5]:
-        logger.debug("%s", result)
+        logger.debug("%s", {k:v for i, (k, v) in enumerate(result.items()) if i < 3})
 
     run = ranx.Run(search_result)
     metrics = [
