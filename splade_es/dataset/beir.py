@@ -169,3 +169,18 @@ class Touchev2Doc(Doc):
 class Touchev2(BeirDataset, name="touche", doc_type=Touchev2Doc):
     def __init__(self) -> None:
         super().__init__("beir/webis-touche2020/v2")
+
+
+class NQDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class NQ(BeirDataset, name="nq", doc_type=NQDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/nq")
