@@ -1,7 +1,9 @@
 import logging
-from itertools import batched
-from typing import Generator, Iterable
+from collections import deque
 
+from elasticsearch import Elasticsearch
+from elasticsearch.helpers import bulk, parallel_bulk, BulkIndexError
+from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
 from elasticsearch import Elasticsearch
 from tqdm import tqdm
@@ -86,6 +88,8 @@ class SpladeEncoder(object):
                 weight = pooled_output[idx].item()
                 if weight > 0:
                     token = self.vocab_dict[int(idx)]
+                    if token == ".":
+                        continue
                     expand_terms[token] = weight
 
             expand_terms_list.append(expand_terms)
@@ -130,8 +134,7 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                     for field in self.dataset.doc_text_fields
                 }
                 doc_fields[self.VECTOR_FIELD] = sparse_vector
-                yield {"index": {"_index": self.index_name, "_id": doc.doc_id}}
-                yield doc_fields
+                yield {"index": {"_index": self.index_name, "_id": doc.doc_id}, "_source": doc_fields}
 
         batch_size = 5000
         docs_indexed = 0
@@ -144,9 +147,23 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
 
             sparse_vectors = self.splade.weight_and_expand(field_texts)
 
-            self.client.bulk(
-                operations=_make_bulk_insert_body(batch_docs, sparse_vectors),
-            )
+
+            try:
+                bulk(
+                    self.client,
+                    _make_bulk_insert_body(batch_docs, sparse_vectors),
+                    index=self.index_name,
+                )
+                # deque(parallel_bulk(
+                #     self.client,
+                #     _make_bulk_insert_body(batch_docs, sparse_vectors),
+                #     index=self.index_name,
+                # ), maxlen=0)
+            except BulkIndexError as e:
+                logger.error("BulkIndexError")
+                logger.error("errors: %s", e.errors)
+                raise e
+
 
             docs_indexed += len(sparse_vectors)
 
