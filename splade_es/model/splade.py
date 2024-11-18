@@ -2,7 +2,6 @@ import logging
 from collections import deque
 from typing import Generator, Iterable
 from itertools import batched
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk, parallel_bulk, BulkIndexError
@@ -14,6 +13,7 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 from splade_es.dataset.base import DatasetBase, Doc, Query
 from splade_es.model.base import SearchModelBase, SearchResultType
+from splade_es.utils import MiddleFileHandler
 
 logger = logging.getLogger(__name__)
 
@@ -129,21 +129,22 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
 
     def index(self, docs: Iterable[Doc]) -> None:
         def _make_bulk_insert_body(
-            docs: Iterable[Doc], sparse_vectores: list[dict[str, float]]
-        ) -> Generator:
-            for doc, sparse_vector in zip(docs, sparse_vectores):
-                doc_fields = {
-                    field: self._make_body(getattr(doc, field))
-                    for field in self.dataset.doc_text_fields
-                }
-                doc_fields[self.VECTOR_FIELD] = sparse_vector
-                yield {"index": {"_index": self.index_name, "_id": doc.doc_id}, "_source": doc_fields}
+            doc: dict[str, str], sparse_vector: dict[str, float]
+        ) -> dict[str, dict]:
+            doc_fields = {
+                field: self._make_body(doc.get(field))
+                for field in self.dataset.doc_text_fields
+            }
+            doc_fields[self.VECTOR_FIELD] = sparse_vector
+            return {
+                "index": {"_index": self.index_name, "_id": doc.get("doc_id")},
+                "_source": doc_fields
+            }
 
-        batch_size = 5000
+        batch_size = 10_000
+        insert_batch_size = 100_000
         docs_indexed = 0
-        max_workers=10
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
+        with MiddleFileHandler(self.index_name) as handler:
             for batch_docs in tqdm(
                 batched(docs, batch_size),
                 total=self.dataset.docs_count // batch_size,
@@ -153,26 +154,26 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
 
                 sparse_vectors = self.splade.weight_and_expand(field_texts)
 
-                futures.append(
-                    executor.submit(
-                        bulk,
+                for doc, sparse_vector in zip(batch_docs, sparse_vectors):
+                    handler.jsonl({"doc": doc.model_dump(), "sparse_vector": sparse_vector})
+
+            for encoded_docs in batched(handler.yield_from_head_as_jsonl(), insert_batch_size):
+                try:
+                    parallel_bulk(
                         self.client,
-                        list(_make_bulk_insert_body(batch_docs, sparse_vectors)),
+                        [
+                            _make_bulk_insert_body(
+                                encoded_doc["doc"],
+                                encoded_doc["sparse_vector"]
+                            )
+                            for encoded_doc in encoded_docs
+                        ],
                         index=self.index_name,
                     )
-                )
-
-            for future in as_completed(futures):
-                try:
-                    success_count, errors = future.result()
-                    if errors:
-                        logger.error("errors: %s", errors)
-                    docs_indexed += success_count
                 except BulkIndexError as e:
                     logger.error("BulkIndexError")
                     logger.error("errors: %s", e.errors)
                     raise e
-
 
         logger.info("Indexed %d documents", docs_indexed)
 
