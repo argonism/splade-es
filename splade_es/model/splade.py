@@ -1,5 +1,7 @@
 import logging
 from collections import deque
+from typing import Generator, Iterable
+from itertools import batched
 
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk, parallel_bulk, BulkIndexError
