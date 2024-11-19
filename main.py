@@ -1,9 +1,9 @@
 import logging
+import time
 from argparse import ArgumentParser
 from os import environ
 from pathlib import Path
 from typing import Iterable
-import time
 
 import ranx
 from elasticsearch import Elasticsearch
@@ -77,7 +77,11 @@ def main(args: Args):
 
     corpus: Iterable[Doc] = dataset.corpus_iter()
     if args.debug:
-        corpus = [doc for i, doc in enumerate(dataset.corpus_iter()) if i < 3]
+        corpus = []
+        for i, doc in enumerate(dataset.corpus_iter()):
+            if i > 1000:
+                break
+            corpus.append(doc)
 
     start = time.perf_counter()
     search_model.index(corpus)

@@ -1,13 +1,12 @@
 import logging
-from collections import deque
-from typing import Generator, Iterable
+import time
+from collections import defaultdict
 from itertools import batched
+from typing import Generator, Iterable
 
-from elasticsearch import Elasticsearch
-from elasticsearch.helpers import bulk, parallel_bulk, BulkIndexError
-from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
 from elasticsearch import Elasticsearch
+from elasticsearch.helpers import BulkIndexError, bulk, parallel_bulk
 from tqdm import tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
@@ -74,30 +73,39 @@ class SpladeEncoder(object):
             outputs.append(output)
         return torch.cat(outputs)
 
+    def output_to_term_weights(self, pooled_output: torch.Tensor) -> list[dict[str, float]]:
+        return {
+            self.vocab_dict[int(idx)]: pooled_output[idx].item()
+            for idx in torch.nonzero(pooled_output).squeeze()
+            if not "." == self.vocab_dict[int(idx)]
+        }
+
     def weight_and_expand(
         self, texts: list[str], batch_size: int = 32
     ) -> list[dict[str, float]]:
         with torch.no_grad():
             model_outputs = self._encode_texts(texts, batch_size=batch_size)
 
-        expand_terms_list = []
-        for model_output in model_outputs:
-            pooled_output = model_output
+        return model_outputs
 
-            # Get the indexes of non-zero values
-            indexes = torch.nonzero(pooled_output, as_tuple=False).squeeze()
-            expand_terms = {}
-            for idx in indexes:
-                weight = pooled_output[idx].item()
-                if weight > 0:
-                    token = self.vocab_dict[int(idx)]
-                    if token == ".":
-                        continue
-                    expand_terms[token] = weight
+        # expand_terms_list = []
+        # for model_output in model_outputs:
+        #     pooled_output = model_output
 
-            expand_terms_list.append(expand_terms)
+        #     # Get the indexes of non-zero values
+        #     indexes = torch.nonzero(pooled_output, as_tuple=False)
+        #     expand_terms = {}
+        #     for idx in indexes:
+        #         weight = pooled_output[idx].item()
+        #         if weight > 0:
+        #             token = self.vocab_dict[int(idx)]
+        #             if token == ".":
+        #                 continue
+        #             expand_terms[token] = weight
 
-        return expand_terms_list
+        #     expand_terms_list.append(expand_terms)
+
+        # return expand_terms
 
 
 class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
@@ -141,21 +149,29 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                 "_source": doc_fields
             }
 
-        batch_size = 10_000
+        batch_size = 100
         insert_batch_size = 100_000
         docs_indexed = 0
         with MiddleFileHandler(self.index_name) as handler:
-            for batch_docs in tqdm(
-                batched(docs, batch_size),
-                total=self.dataset.docs_count // batch_size,
-                desc="splade index",
-            ):
-                field_texts = self._get_text_for_encode(batch_docs)
+            with handler.step_with_incremental_files("encode") as step:
+                for batch_docs in batched(docs, batch_size):
+                    field_texts = self._get_text_for_encode(batch_docs)
 
-                sparse_vectors = self.splade.weight_and_expand(field_texts)
+                    model_output = self.splade.weight_and_expand(field_texts)
+                    
+                    print("saving to file", flush=True)
+                    torch.save(
+                        (batch_docs, model_output),
+                        step.get_new_path_to_file_incremental()
+                    )
+                    print("end: saving to file", flush=True)
 
-                for doc, sparse_vector in zip(batch_docs, sparse_vectors):
-                    handler.jsonl({"doc": doc.model_dump(), "sparse_vector": sparse_vector})
+            with handler.step_with_jsonl("sparse_vectors") as step:
+                for path in tqdm(handler.previous_step.read_each_files()):
+                    doc_output = torch.load(path)
+                    for doc, output in zip(*doc_output):
+                        sparse_vector = self.splade.output_to_term_weights(output)
+                        step.write({"doc": doc.model_dump(), "sparse_vector": sparse_vector})
 
             for encoded_docs in batched(handler.yield_from_head_as_jsonl(), insert_batch_size):
                 try:
