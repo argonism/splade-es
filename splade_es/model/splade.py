@@ -1,10 +1,11 @@
 import logging
 from itertools import batched
-from typing import Generator, Iterable, Generic, TypeVar
+from typing import Generator, Generic, Iterable, TypeVar
 
 import torch
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import BulkIndexError, bulk
+from pydantic import BaseModel
 from tqdm import tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
