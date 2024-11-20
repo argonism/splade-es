@@ -1,11 +1,10 @@
+import logging
 from abc import abstractmethod
 from typing import Iterable, Optional
-import logging
 
 from elasticsearch import Elasticsearch
 
-from splade_es.dataset.base import Doc, Query, DatasetBase
-
+from splade_es.dataset.base import DatasetBase, Doc, Query
 
 SearchResultType = dict[str, dict[str, float | int]]
 logger = logging.getLogger(__name__)
@@ -21,11 +20,14 @@ class SearchModelBase(object):
         dataset: DatasetBase,
         reset_index: bool = False,
         encoder_path: Optional[str] = None,
+        index_suffix: str | None = None,
         **kwargs,
     ) -> None:
         self.client = es_client
         self.encoder_path = encoder_path
         self.dataset = dataset
+
+        self.index_suffix = index_suffix
 
         self.setup_index(reset_index=reset_index)
 
@@ -36,7 +38,11 @@ class SearchModelBase(object):
 
     @property
     def index_name(self) -> str:
-        return f"{self.model_name}.{self.dataset.name}"
+        index_name = f"{self.model_name}.{self.dataset.name}"
+        if self.index_suffix:
+            index_name = f"{index_name}.{self.index_suffix}"
+        
+        return index_name
 
     def _make_body(self, content) -> str:
         if isinstance(content, str):

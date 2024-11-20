@@ -150,8 +150,8 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                     "_source": doc_fields
                 }
 
-        batch_size = 5
-        insert_batch_size = 2
+        batch_size = 5000
+        insert_batch_size = 10000
         docs_indexed = 0
         with MiddleFileHandler(self.index_name) as handler:
             with handler.step_with_incremental_files("encode") as step:

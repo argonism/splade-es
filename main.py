@@ -72,7 +72,8 @@ def main(args: Args):
         es_client,
         dataset,
         reset_index=args.reset_index,
-        device=args.device
+        device=args.device,
+        index_suffix="debug" if args.debug else None
     )
 
     corpus: Iterable[Doc] = dataset.corpus_iter()
