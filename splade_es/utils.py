@@ -2,7 +2,10 @@ import json
 import logging
 from io import TextIOWrapper
 from pathlib import Path
-from typing import Any, Generator
+from typing import Generator, Generic, TypeVar
+from abc import abstractmethod
+
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +42,22 @@ def dump_to_json(json_encodable: dict, path: Path, indent: int = 2) -> None:
     path.write_text(json.dumps(json_encodable, indent=indent, ensure_ascii=False))
 
 
-class MiddleFileStep(object):
+T = TypeVar("T", bound=BaseModel)
+
+class MiddleFileStep(Generic[T]):
+    def __init__(self, name: str, base_dir: Path, data_model: type[T]) -> None:
+        self.path = base_dir / name
+        self.write_count = 0
+        self.data_model = data_model
+
     def close(self) -> None:
-        pass
+        self.write_count = 0
+
+    @abstractmethod
+    def writeone(self, data: T, *args, **kwargs) -> None: ...
+
+    @abstractmethod
+    def read(self) -> Generator[T, None, None]: ...
 
     def __enter__(self) -> "MiddleFileStep":
         if not self.path.parent.exists():
@@ -52,13 +68,13 @@ class MiddleFileStep(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         return False
 
-class MiddleFileJsonlStep(MiddleFileStep):
-    def __init__(self, name: str, base_dir: Path) -> None:
-        self.path = base_dir / name
-        make_dir_if_exists(self.path.parent)
-        self._file: TextIOWrapper | None = None
 
-        self.write_count = 0
+class MiddleFileJsonlStep(MiddleFileStep[T]):
+    def __init__(self, name: str, base_dir: Path, data_model: type[T]) -> None:
+        super().__init__(name, base_dir, data_model)
+        make_dir_if_exists(self.path.parent)
+
+        self._file: TextIOWrapper | None = None
 
     def __enter__(self) -> "MiddleFileStep":
         self._file = self.path.open("w+")
@@ -66,20 +82,29 @@ class MiddleFileJsonlStep(MiddleFileStep):
         return self
 
     def close(self) -> None:
+        super().close()
         if self._file is None:
             return
 
         self._file.close()
-        self.write_count = 0
 
-    def write(self, dict: dict) -> None:
+    def writeone(self, data: T, *args, **kwargs) -> None:
         if self._file is None:
             raise ValueError("file is not opened")
 
         self._file.write(
-            json.dumps(dict, ensure_ascii=False) + "\n"
+            json.dumps(data.model_dump(), ensure_ascii=False) + "\n"
         )
         self.write_count += 1
+
+    def read(self) -> Generator[T, None, None]:
+        if self._file is None:
+            raise ValueError("file is not opened")
+
+        self._file.seek(0)
+        for line in self._file:
+            entry = json.loads(line)
+            yield self.data_model(**entry)
 
 
 class MiddleFileIncrementalFileStep(MiddleFileStep):
@@ -112,7 +137,6 @@ class MiddleFileIncrementalFileStep(MiddleFileStep):
         self._file.close()
         self.write_count = 0
 
-
 class MiddleFileHandler(object):
     def __init__(self, name: str) -> None:
         self.path = CACHE_DIR / name
@@ -134,8 +158,8 @@ class MiddleFileHandler(object):
 
         return step
 
-    def step_with_jsonl(self, name: str) -> MiddleFileJsonlStep:
-        step = MiddleFileJsonlStep(name, self.path)
+    def step_with_jsonl(self, name: str, data_model: type[T]) -> MiddleFileJsonlStep:
+        step = MiddleFileJsonlStep(name, self.path, data_model)
         self._steps[name] = step
         self.step_order[len(self._steps)] = name
 
@@ -145,16 +169,19 @@ class MiddleFileHandler(object):
         return self._steps[name]
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        for step in self._steps:
+        for step in self._steps.values():
             step.close()
         return False
 
     @property
     def previous_step(self) -> MiddleFileStep | None:
-        print(self.step_order)
         previous_step_num = len(self.step_order) - 1
         if previous_step_num <= 0:
             return None
-        
+
         pre_step_name = self.step_order[previous_step_num]
         return self._steps[pre_step_name]
+
+"""
+stepを生成するタイミングで、外からpydantic.basemodelを受け取って、それをやりとりできるようにしたい
+"""
