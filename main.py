@@ -39,6 +39,7 @@ class Args(BaseModel):
 
     reset_index: bool = Field(False)
     debug: bool = Field(False)
+    suffix: str = Field(None)
 
     @classmethod
     def from_parse_args(cls) -> "Args":
@@ -68,19 +69,22 @@ def main(args: Args):
 
     dataset = get_dataset(args.dataset)
 
+    index_suffix = args.suffix if args.suffix else None
+    if args.debug and index_suffix is None:
+        index_suffix = "debug"
     search_model = get_search_model(args.model)(
         es_client,
         dataset,
         reset_index=args.reset_index,
         device=args.device,
-        index_suffix="debug" if args.debug else None
+        index_suffix=index_suffix
     )
 
     corpus: Iterable[Doc] = dataset.corpus_iter()
     if args.debug:
         corpus = []
         for i, doc in enumerate(dataset.corpus_iter()):
-            if i > 1000:
+            if i > 10:
                 break
             corpus.append(doc)
 
