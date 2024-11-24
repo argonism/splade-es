@@ -81,11 +81,14 @@ class SpladeEncoder(object):
         return model_outputs
 
     def output_to_term_weights(self, pooled_output: torch.Tensor) -> dict[str, float]:
-        return {
-            self.vocab_dict[int(idx)]: pooled_output[idx].item()
-            for idx in torch.nonzero(pooled_output).squeeze()
-            if not "." == self.vocab_dict[int(idx)]
-        }
+        indexes = torch.nonzero(pooled_output, as_tuple=False).squeeze()
+        expand_terms = {}
+        for idx in indexes:
+            weight = pooled_output[idx].item()
+            if weight > 0:
+                token = self.vocab_dict[int(idx)]
+                expand_terms[token] = weight
+        return expand_terms
 
     def weight_and_expand(
         self, texts: list[str], batch_size: int = 32
@@ -144,11 +147,10 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                     field: self._make_body(getattr(entry.doc, field))
                     for field in self.dataset.doc_text_fields
                 }
-                doc_fields[self.VECTOR_FIELD] = sparse_vector
-                yield {
-                    "index": {"_index": self.index_name, "_id": entry.doc.doc_id},
-                    "_source": doc_fields
-                }
+                doc_fields[self.VECTOR_FIELD] = entry.sparse_vector
+                yield {"index": {"_index": self.index_name, "_id": entry.doc.doc_id}}
+                yield doc_fields
+
 
         batch_size = 5000
         insert_batch_size = 10000
@@ -159,7 +161,6 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                     field_texts = self._get_text_for_encode(batch_docs)
 
                     model_output = self.splade.get_model_output(field_texts)
-
                     torch.save(
                         (batch_docs, model_output),
                         step.get_new_path_to_file_incremental()
@@ -175,14 +176,14 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
 
             for encoded_docs in batched(handler.get_step("sparse_vectors").read(), insert_batch_size):
                 try:
-                    success, error = bulk(
-                        self.client,
-                        _make_bulk_insert_body(encoded_docs),
-                        index=self.index_name,
+                    res = self.client.bulk(
+                        operations=_make_bulk_insert_body(encoded_docs),
                     )
-                    docs_indexed += success
-                    if error:
-                        logger.error("bulk error: %s", error)
+                    if res["errors"]:
+                        logger.error("bulk error: %s", res["items"])
+                    else:
+                        docs_indexed += len(res["items"])
+
                 except BulkIndexError as e:
                     logger.error("BulkIndexError")
                     logger.error("errors: %s", e.errors)
