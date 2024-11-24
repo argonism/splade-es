@@ -3,6 +3,7 @@ import time
 from argparse import ArgumentParser
 from os import environ
 from pathlib import Path
+from types import UnionType
 from typing import Iterable
 
 import ranx
@@ -39,7 +40,7 @@ class Args(BaseModel):
 
     reset_index: bool = Field(False)
     debug: bool = Field(False)
-    suffix: str = Field(None)
+    suffix: str | None = Field(None)
 
     @classmethod
     def from_parse_args(cls) -> "Args":
@@ -56,6 +57,10 @@ class Args(BaseModel):
             if info.annotation is not None:
                 if info.annotation is bool:
                     kwargs["action"] = "store_true"
+                elif isinstance(info.annotation, UnionType):
+                    if len(info.annotation.__args__ ) > 2:
+                        raise ValueError("Annotation can not be more than 2")
+                    kwargs["type"] = [type_ for type_ in info.annotation.__args__ if type_ is not None][0]
                 else:
                     kwargs["type"] = info.annotation
 
