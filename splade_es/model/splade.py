@@ -175,19 +175,16 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                         step.writeone(entry)
 
             for encoded_docs in batched(handler.get_step("sparse_vectors").read(), insert_batch_size):
-                try:
-                    res = self.client.bulk(
-                        operations=_make_bulk_insert_body(encoded_docs),
-                    )
-                    if res["errors"]:
-                        logger.error("bulk error: %s", res["items"])
+                res = self.client.bulk(
+                    operations=_make_bulk_insert_body(encoded_docs),
+                )
+                for item in res["items"]:
+                    if "error" in item["index"]:
+                        error = item["index"]["error"]
+                        logger.error(error["caused_by"])
+                        logger.error(error["reason"])
                     else:
-                        docs_indexed += len(res["items"])
-
-                except BulkIndexError as e:
-                    logger.error("BulkIndexError")
-                    logger.error("errors: %s", e.errors)
-                    raise e
+                        docs_indexed += item["index"]["_shards"]["successful"]
 
         logger.info("Indexed %d documents", docs_indexed)
 

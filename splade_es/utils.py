@@ -1,9 +1,9 @@
 import json
 import logging
+from abc import abstractmethod
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Generator, Generic, TypeVar
-from abc import abstractmethod
 
 from pydantic import BaseModel
 
