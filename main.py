@@ -103,7 +103,7 @@ def main(args: Args):
     end = time.perf_counter()
     logger.info("Searching took %.2f seconds", end - start)
 
-    run_path = run_dir / f"{args.model}/{args.dataset}.json"
+    run_path = run_dir / f"{search_model.index_name}.json"
     dump_to_json(search_result, run_path)
 
     # Print 5 search result examples:
@@ -121,7 +121,7 @@ def main(args: Args):
     ]
     eval_result = ranx.evaluate(dataset.qrels, run, metrics=metrics)
 
-    eval_path = eval_dir / f"{args.model}/{args.dataset}.json"
+    eval_path = eval_dir / f"{search_model.index_name}.json"
     dump_to_json(eval_result, eval_path)
 
     print(eval_result)
