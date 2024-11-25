@@ -4,7 +4,6 @@ from typing import Generator, Generic, Iterable, TypeVar
 
 import torch
 from elasticsearch import Elasticsearch
-from elasticsearch.helpers import BulkIndexError, bulk
 from pydantic import BaseModel
 from tqdm import tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
@@ -87,6 +86,10 @@ class SpladeEncoder(object):
             weight = pooled_output[idx].item()
             if weight > 0:
                 token = self.vocab_dict[int(idx)]
+                # sparse_vector fields do not support dots in feature names
+                if token == ".":
+                    continue
+
                 expand_terms[token] = weight
         return expand_terms
 
