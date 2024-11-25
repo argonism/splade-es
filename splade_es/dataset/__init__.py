@@ -4,6 +4,7 @@ from splade_es.dataset.base import DatasetBase, Doc, Query
 from splade_es.dataset.beir import (
     NQ,
     Arguana,
+    ClimateFever,
     FiQA,
     Nfcorpus,
     Quora,
@@ -24,7 +25,8 @@ DATASETS = {
     "quora": Quora,
     "fiqa": FiQA,
     "touche": Touchev2,
-    "nq": NQ
+    "nq": NQ,
+    "climate-fever": ClimateFever
 }
 
 

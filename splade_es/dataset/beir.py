@@ -184,3 +184,18 @@ class NQDoc(Doc):
 class NQ(BeirDataset, name="nq", doc_type=NQDoc):
     def __init__(self) -> None:
         super().__init__("beir/nq")
+
+
+class ClimateFeverDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class ClimateFever(BeirDataset, name="climate-fever", doc_type=ClimateFeverDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/climate-fever")
