@@ -1,6 +1,8 @@
 import logging
 from itertools import batched
 from typing import Generator, Generic, Iterable, TypeVar
+from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import torch
 from elasticsearch import Elasticsearch
@@ -109,9 +111,37 @@ class SpladeEncoder(object):
 
 DocType = TypeVar("DocType")
 
+
 class SparseVectorMiddleEntry(BaseModel, Generic[DocType]):
     doc: DocType
     sparse_vector: dict[str, float]
+
+
+def output_to_term_weights(vocab_dict: dict[int, str], pooled_output: torch.Tensor) -> dict[str, float]:
+    indexes = torch.nonzero(pooled_output, as_tuple=False).squeeze()
+    expand_terms = {}
+    for idx in indexes:
+        weight = pooled_output[idx].item()
+        if weight > 0:
+            token = vocab_dict[int(idx)]
+            # sparse_vector fields do not support dots in feature names
+            if token == ".":
+                continue
+
+            expand_terms[token] = weight
+    return expand_terms
+
+
+def convert_sparse_vector_to_dict(
+    path: Path, vocab_dict: dict[int, str], doc_type: type[Doc]
+) -> list[SparseVectorMiddleEntry[DocType]]:
+    doc_output = torch.load(path)
+    entries = []
+    for doc, output in zip(*doc_output):
+        sparse_vector = output_to_term_weights(vocab_dict, output)
+        entry = SparseVectorMiddleEntry[doc_type](doc=doc, sparse_vector=sparse_vector)
+        entries.append(entry.model_dump())
+    return entries
 
 
 class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
@@ -141,7 +171,7 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
             texts.append(text)
         return texts
 
-    def index(self, docs: Iterable[Doc]) -> None:
+    def index(self, docs: Iterable[Doc], clear_cache: bool = True) -> None:
         def _make_bulk_insert_body(
             entries: Iterable[SparseVectorMiddleEntry[self.dataset.doc_type]]
         ) -> Generator[dict[str, dict], None, None]:
@@ -155,27 +185,45 @@ class ESSplade(SearchModelBase, model_name="splade", index_schema=INDEX_SCHEMA):
                 yield doc_fields
 
 
-        batch_size = 5000
-        insert_batch_size = 10000
+        batch_size = 50_000
+        insert_batch_size = 100_000
         docs_indexed = 0
         with MiddleFileHandler(self.index_name) as handler:
-            with handler.step_with_incremental_files("encode") as step:
-                for batch_docs in batched(docs, batch_size):
-                    field_texts = self._get_text_for_encode(batch_docs)
+            with handler.step_with_incremental_files("encode", clear_cache=clear_cache) as step:
+                if not step.is_cached():
+                    for batch_docs in batched(docs, batch_size):
+                        field_texts = self._get_text_for_encode(batch_docs)
 
-                    model_output = self.splade.get_model_output(field_texts)
-                    torch.save(
-                        (batch_docs, model_output),
-                        step.get_new_path_to_file_incremental()
-                    )
+                        model_output = self.splade.get_model_output(field_texts)
+                        torch.save(
+                            (batch_docs, model_output),
+                            step.write()
+                        )
 
-            with handler.step_with_jsonl("sparse_vectors", SparseVectorMiddleEntry[self.dataset.doc_type]) as step:
-                for path in tqdm(handler.previous_step.read_each_files()):
-                    doc_output = torch.load(path)
-                    for doc, output in zip(*doc_output):
-                        sparse_vector = self.splade.output_to_term_weights(output)
-                        entry = SparseVectorMiddleEntry[self.dataset.doc_type](doc=doc, sparse_vector=sparse_vector)
-                        step.writeone(entry)
+            with handler.step_with_jsonl("sparse_vectors", SparseVectorMiddleEntry[self.dataset.doc_type], clear_cache=clear_cache) as step:
+                if not step.is_cached():
+                    max_workers = 32
+                    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                        futures = []
+                        for path in tqdm(handler.previous_step.read()):
+                            print(f"{path=}")
+                            future = executor.submit(
+                                convert_sparse_vector_to_dict,
+                                path,
+                                self.splade.vocab_dict,
+                                self.dataset.doc_type,
+                            )
+                            futures.append(future)
+
+                        for future in as_completed(futures):
+                            for entry in future.result():
+                                step.writeone(SparseVectorMiddleEntry[self.dataset.doc_type](**entry))
+
+                            # doc_output = torch.load(path)
+                            # for doc, output in zip(*doc_output):
+                            #     sparse_vector = self.splade.output_to_term_weights(output)
+                            #     entry = SparseVectorMiddleEntry[self.dataset.doc_type](doc=doc, sparse_vector=sparse_vector)
+                            #     step.writeone(entry)
 
             for encoded_docs in batched(handler.get_step("sparse_vectors").read(), insert_batch_size):
                 res = self.client.bulk(

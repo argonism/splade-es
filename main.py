@@ -41,6 +41,7 @@ class Args(BaseModel):
     reset_index: bool = Field(False)
     debug: bool = Field(False)
     suffix: str | None = Field(None)
+    clear_cache: bool = Field(False)
 
     @classmethod
     def from_parse_args(cls) -> "Args":
