@@ -1,27 +1,25 @@
-import re
+import json
 import logging
+import os
+import re
+import time
 from itertools import batched
 from pathlib import Path
-from typing import Generator, Iterable, Any
-import json
-import os
-import time
+from typing import Any, Generator, Iterable
 
+import gokart
 import gokart.target
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+import luigi
 import torch
-from tqdm import tqdm
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+from elasticsearch.helpers import BulkIndexError
 from gokart.config_params import inherits_config_params
 from gokart.task import TaskOnKart
-import gokart
-from elasticsearch.helpers import BulkIndexError
-import luigi
+from tqdm import tqdm
+from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-from splade_es.dataset import get_dataset, Doc
+from splade_es.dataset import Doc, get_dataset
 from splade_es.tasks.base import BaseTask, MasterConfig
 from splade_es.utils import ElasticsearchClient
-
 
 logger = logging.getLogger(__name__)
 VECTOR_FIELD = os.getenv("SPLADE_VECTOR_FIELD", "splade_term_weights")
@@ -174,7 +172,7 @@ class SpladeSearchTask(SpladeESAccessTask):
             desc="Searching",
         ):
             term_weights = splade_encoder.encode_to_dict([query.text for query in batch_queries])
-
+            
             es_res = es_client.msearch(
                 searches=yield_query(splade_index, term_weights, size=self.top_k)
             )
@@ -192,8 +190,12 @@ class SpladeSearchTask(SpladeESAccessTask):
 
         logger.info("Retrieved %d search results", len(search_result))
 
-        for i in range(5):
-            logger.debug("search result %d: %s", i + 1, {k: v for k, v in list(search_result.items())[:5]})
+        print(f"search results len: {len(search_result)}")
+        for i, qid in enumerate(search_result):
+            if i >= 5:
+                break
+            filtered_results = {k: v for k, v in list(search_result[qid].items())[:5]}
+            print(f"search result {qid}: {filtered_results}")
 
         self.dump(search_result)
 
@@ -234,7 +236,7 @@ class SpladeIndexTask(SpladeESAccessTask):
                             logger.warning("%s does not have %s field", doc, field)
                             raise ValueError(f"{doc} does not have {field} field")
                         doc_fields[field] = doc[field]
-                yield {"index": {"_index": self.index_name, "_id": doc["doc_id"]}, "_source": doc_fields}
+                yield {"_index": self.index_name, "_id": doc["doc_id"], "_source": doc_fields}
 
         dataset = get_dataset(self.dataset)
         jsonl_path, write_count = self.load()
