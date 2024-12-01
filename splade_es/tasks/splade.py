@@ -263,7 +263,6 @@ class SpladeIndexTask(SpladeESAccessTask):
 
         self.dump(self.index_name)
 
-@inherits_config_params(MasterConfig)
 class SpladeDictionalizeTask(BaseTask):
     dataset = luigi.Parameter()
     encoder_path = luigi.Parameter()
@@ -295,6 +294,7 @@ class SpladeDictionalizeTask(BaseTask):
         write_count = 0
         with jsonl_path.open("w") as f:
             for path in partial_files_manager.yield_pathes():
+                print(f"{path=}")
                 docs, model_outputs = torch.load(path)
                 terms_weights = splade_encoder.model_outputs_to_dict(model_outputs)
                 for doc, term_weight in zip(docs, terms_weights):
@@ -325,6 +325,8 @@ class PartialFilesManager:
         if self._write_count != 0:
             raise ValueError("write count is not 0. Please do not reuse this object")
 
+        logger.debug("Writing partial files to %s", self.file_dir)
+
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -341,11 +343,11 @@ class PartialFilesManager:
     def yield_pathes(self) -> Generator[Path, None, None]:
         pathes = self.pathes
         for path in tqdm(pathes, total=len(pathes), desc="Yielding partial files"):
-            if path.is_file() and path.name.startswith(self.name):
+            if path.is_file() and path.stem == self.name:
                 yield path
 
     def new_file(self) -> Path:
-        path = self.file_dir / f"partial.{self._write_count}"
+        path = self.file_dir / f"{self.name}.{self._write_count}"
         if path.exists():
             logger.warning("Found existing partial file %s", path)
         self._write_count += 1
@@ -382,7 +384,8 @@ class SpladeEncodeTask(BaseTask):
             encoder_path=self.encoder_path, device=self.device
         )
 
-        with PartialFilesManager(self._output_dir()) as partial_files_manager:
+        partial_files_dir = Path(self.workspace_directory) / self._output_dir()
+        with PartialFilesManager(partial_files_dir) as partial_files_manager:
             for batch_docs in tqdm(
                 batched(dataset.corpus_iter(self.debug), self.corpus_load_batch_size),
                 total=dataset.docs_count // self.corpus_load_batch_size,

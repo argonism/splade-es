@@ -28,7 +28,7 @@ class EvaluateTask(BaseTask):
         return get_search_task(self.search_model)(rerun=self.rerun)
 
     def output(self):
-        return self.cache_path(f"{self.search_model}/{self.dataset}/evaluate.pkl")
+        return self.cache_path(f"{self.search_model.value}/{self.dataset}/evaluate.pkl")
 
     def run(self):
         search_result = self.load()
@@ -36,5 +36,8 @@ class EvaluateTask(BaseTask):
 
         run = ranx.Run(search_result)
         eval_result = ranx.evaluate(dataset.qrels, run, metrics=self.metrics)
-        print(eval_result)
+
+        for metric, value in eval_result.items():
+            print(f"{metric}: {value}")
+
         self.dump(eval_result)
