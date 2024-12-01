@@ -26,7 +26,7 @@ class DatasetBase:
         cls.doc_type = doc_type
 
     @abstractmethod
-    def corpus_iter(self) -> Generator[Doc, None, None]: ...
+    def corpus_iter(self, debug: bool = False) -> Generator[Doc, None, None]: ...
 
     @property
     @abstractmethod

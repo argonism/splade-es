@@ -1,10 +1,12 @@
-from collections import defaultdict
 from typing import Generator, Iterable
+import os
 
 import ir_datasets
 from tqdm import tqdm
 
 from splade_es.dataset.base import DatasetBase, Doc, Qrels, Query
+
+DEBUG_CORPUS_SIZE = int(os.getenv("DEBUG_CORPUS_SIZE", "10"))
 
 
 class BeirQuery(Query):
@@ -19,12 +21,15 @@ class BeirDataset(DatasetBase, name="beir", doc_type=Doc):
         self.query_type = query_type
         self.query_fields = query_type.model_fields
 
-    def corpus_iter(self) -> Generator[Doc, None, None]:
-        for doc in tqdm(
+    def corpus_iter(self, debug: bool = False) -> Generator[Doc, None, None]:
+        for i, doc in enumerate(tqdm(
             self.dataset.docs_iter(),
-            total=self.dataset.docs_count(),
+            total=DEBUG_CORPUS_SIZE if debug else self.dataset.docs_count(),
             desc=f"{self.dataset_key} corpus iter:",
-        ):
+        )):
+            if debug and i >= DEBUG_CORPUS_SIZE:
+                break
+
             model_fields = {}
             for field in self.doc_type.model_fields:
                 model_fields[field] = getattr(doc, field, None)
