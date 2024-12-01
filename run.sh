@@ -1,0 +1,1 @@
+TOKENIZERS_PARALLELISM=true uv run python run_task.py $1 --local-scheduler $2
