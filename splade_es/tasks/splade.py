@@ -5,7 +5,7 @@ import re
 import time
 from itertools import batched
 from pathlib import Path
-from typing import Any, Generator, Iterable
+from typing import Generator, Iterable
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -14,16 +14,17 @@ import gokart.target
 import luigi
 import torch
 from elasticsearch.helpers import BulkIndexError
-from gokart.config_params import inherits_config_params
 from gokart.task import TaskOnKart
 from tqdm import tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 from splade_es.dataset import Doc, get_dataset
-from splade_es.tasks.base import BaseTask, MasterConfig
+from splade_es.tasks.base import BaseTask
 from splade_es.utils import ElasticsearchClient, PartialFilesManager
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 VECTOR_FIELD = os.getenv("SPLADE_VECTOR_FIELD", "splade_term_weights")
 
 INDEX_SCHEMA = {
@@ -293,9 +294,6 @@ class SpladeIndexTask(SpladeESAccessTask):
 def dictionalize_worker(path: Path, vocab_dict: dict[int, str]) -> list[dict[str, float]]:
     docs, model_outputs = torch.load(path)
     expand_terms_list = dictionalize_model_outputs(model_outputs, vocab_dict)
-
-    print(f"vocab_dict len: {len(vocab_dict)}")
-    print(f"vocab_dict examples: {[item for item in list(vocab_dict.items())[:5]]}")
 
     jsonl_lines: list[dict] = []
     for doc, term_weight in zip(docs, expand_terms_list):
