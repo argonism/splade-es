@@ -6,6 +6,8 @@ import time
 from itertools import batched
 from pathlib import Path
 from typing import Any, Generator, Iterable
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import gokart
 import gokart.target
@@ -19,7 +21,7 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 from splade_es.dataset import Doc, get_dataset
 from splade_es.tasks.base import BaseTask, MasterConfig
-from splade_es.utils import ElasticsearchClient
+from splade_es.utils import ElasticsearchClient, PartialFilesManager
 
 logger = logging.getLogger(__name__)
 VECTOR_FIELD = os.getenv("SPLADE_VECTOR_FIELD", "splade_term_weights")
@@ -35,6 +37,27 @@ INDEX_SCHEMA = {
         },
     },
 }
+
+
+
+def dictionalize_model_outputs(model_outputs: torch.Tensor, vocab_dict: dict[int, str]) -> list[dict[str, float]]:
+    expand_terms_list: list[dict[str, float]] = []
+    for model_output in model_outputs:
+        indexes = torch.nonzero(model_output, as_tuple=False).squeeze()
+        expand_terms = {}
+        for idx in indexes:
+            weight = model_output[idx].item()
+            if weight > 0:
+                token = vocab_dict[int(idx)]
+                # Ignore dot because elasticsearch does not support it
+                if token == ".":
+                    continue
+                expand_terms[token] = weight
+
+        expand_terms_list.append(expand_terms)
+
+    return expand_terms_list
+
 
 class SpladeEncoder(object):
     def __init__(
@@ -84,27 +107,28 @@ class SpladeEncoder(object):
             model_outputs = self._encode_texts(texts, batch_size=batch_size)
             return model_outputs
 
-    def _model_output_to_dict(self, model_output: torch.Tensor) -> dict[str, float]:
-        indexes = torch.nonzero(model_output, as_tuple=False).squeeze()
-        expand_terms = {}
-        for idx in indexes:
-            weight = model_output[idx].item()
-            if weight > 0:
-                token = self.vocab_dict[int(idx)]
-                # Ignore dot because elasticsearch does not support it
-                if token == ".":
-                    continue
-                expand_terms[token] = weight
-        return expand_terms
+    # def _model_output_to_dict(self, model_output: torch.Tensor) -> dict[str, float]:
+    #     indexes = torch.nonzero(model_output, as_tuple=False).squeeze()
+    #     expand_terms = {}
+    #     for idx in indexes:
+    #         weight = model_output[idx].item()
+    #         if weight > 0:
+    #             token = self.vocab_dict[int(idx)]
+    #             # Ignore dot because elasticsearch does not support it
+    #             if token == ".":
+    #                 continue
+    #             expand_terms[token] = weight
+    #     return expand_terms
 
     def model_outputs_to_dict(self, model_outputs: torch.Tensor) -> list[dict[str, float]]:
-        expand_terms_list: list[dict[str, float]] = []
-        for model_output in model_outputs:
-            terms_weights = self._model_output_to_dict(model_output)
+        return dictionalize_model_outputs(model_outputs, self.vocab_dict)
+        # expand_terms_list: list[dict[str, float]] = []
+        # for model_output in model_outputs:
+        #     terms_weights = self._model_output_to_dict(model_output)
 
-            expand_terms_list.append(terms_weights)
+        #     expand_terms_list.append(terms_weights)
 
-        return expand_terms_list
+        # return expand_terms_list
 
     def encode_to_dict(self, texts: list[str], batch_size: int = 32) -> list[dict[str, float]]:
         model_outputs = self.encode_texts(texts, batch_size=batch_size)
@@ -172,7 +196,7 @@ class SpladeSearchTask(SpladeESAccessTask):
             desc="Searching",
         ):
             term_weights = splade_encoder.encode_to_dict([query.text for query in batch_queries])
-            
+
             es_res = es_client.msearch(
                 searches=yield_query(splade_index, term_weights, size=self.top_k)
             )
@@ -265,6 +289,21 @@ class SpladeIndexTask(SpladeESAccessTask):
 
         self.dump(self.index_name)
 
+
+def dictionalize_worker(path: Path, vocab_dict: dict[int, str]) -> list[dict[str, float]]:
+    docs, model_outputs = torch.load(path)
+    expand_terms_list = dictionalize_model_outputs(model_outputs, vocab_dict)
+
+    print(f"vocab_dict len: {len(vocab_dict)}")
+    print(f"vocab_dict examples: {[item for item in list(vocab_dict.items())[:5]]}")
+
+    jsonl_lines: list[dict] = []
+    for doc, term_weight in zip(docs, expand_terms_list):
+        jsonl_line = doc.model_dump()
+        jsonl_line[VECTOR_FIELD] = term_weight
+    return jsonl_lines
+
+
 class SpladeDictionalizeTask(BaseTask):
     dataset = luigi.Parameter()
     encoder_path = luigi.Parameter()
@@ -272,7 +311,7 @@ class SpladeDictionalizeTask(BaseTask):
     encode_batch_size = luigi.IntParameter(default=32)
 
     def requires(self) -> TaskOnKart:
-        return SpladeEncodeTask(rerun=self.rerun)
+        return SpladeEncodeTask()
 
     def _output_dir(self) -> Path:
         return self.make_output_dir(f"splade/{self.encoder_path}/{self.dataset}/dictionalize")
@@ -284,6 +323,7 @@ class SpladeDictionalizeTask(BaseTask):
         return Path(self.workspace_directory) / self._output_dir()
 
     def run(self):
+        start = time.perf_counter()
         partial_files_manager: PartialFilesManager = self.load()
         splade_encoder = SpladeEncoder(
             encoder_path=self.encoder_path, device="cpu"
@@ -295,65 +335,32 @@ class SpladeDictionalizeTask(BaseTask):
 
         write_count = 0
         with jsonl_path.open("w") as f:
-            for path in partial_files_manager.yield_pathes():
-                print(f"{path=}")
-                docs, model_outputs = torch.load(path)
-                terms_weights = splade_encoder.model_outputs_to_dict(model_outputs)
-                for doc, term_weight in zip(docs, terms_weights):
-                    jsonl_line = doc.model_dump()
-                    jsonl_line[VECTOR_FIELD] = term_weight
-                    f.write(json.dumps(jsonl_line, ensure_ascii=False) + "\n")
-                    write_count += 1
+            max_workers = 24
+            with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as executor:
+                futures = []
+                for path in partial_files_manager.yield_pathes():
+                    # docs, model_outputs = torch.load(path)
+                    # terms_weights = splade_encoder.model_outputs_to_dict(model_outputs)
+                    # for doc, term_weight in zip(docs, terms_weights):
+                    #     jsonl_line = doc.model_dump()
+                    #     jsonl_line[VECTOR_FIELD] = term_weight
+                    #     f.write(json.dumps(jsonl_line, ensure_ascii=False) + "\n")
+                    #     write_count += 1
+                    future = executor.submit(
+                        dictionalize_worker,
+                        path,
+                        splade_encoder.vocab_dict,
+                    )
+
+                for future in as_completed(futures):
+                    jsonl_lines = future.result()
+                    for jsonl_line in jsonl_lines:
+                        f.write(json.dumps(jsonl_line, ensure_ascii=False) + "\n")
+                        write_count += 1
 
         self.dump((jsonl_path, write_count))
-
-
-class PartialFilesManager:
-    def __init__(self, file_dir: str, name: str = "partial", clear_cache: bool = False) -> None:
-        self.file_dir = Path(file_dir)
-        self.name = name
-        self._clear_cache = clear_cache
-
-        self._write_count = 0
-
-    def __enter__(self):
-        if not self.file_dir.exists():
-            self.file_dir.mkdir(parents=True, exist_ok=True)
-
-        if self._clear_cache:
-            self.clear_partial_files()
-            self._write_count = 0
-
-        if self._write_count != 0:
-            raise ValueError("write count is not 0. Please do not reuse this object")
-
-        logger.debug("Writing partial files to %s", self.file_dir)
-
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._write_count = 0
-
-    @property
-    def pathes(self):
-        return sorted(self.file_dir.iterdir(), key=lambda x: x.suffix)
-
-    def clear_partial_files(self) -> None:
-        for path in self.pathes:
-            path.unlink()
-
-    def yield_pathes(self) -> Generator[Path, None, None]:
-        pathes = self.pathes
-        for path in tqdm(pathes, total=len(pathes), desc="Yielding partial files"):
-            if path.is_file() and path.stem == self.name:
-                yield path
-
-    def new_file(self) -> Path:
-        path = self.file_dir / f"{self.name}.{self._write_count}"
-        if path.exists():
-            logger.warning("Found existing partial file %s", path)
-        self._write_count += 1
-        return path
+        end = time.perf_counter()
+        logger.info("Dictionalize took %f seconds", end - start)
 
 
 class SpladeEncodeTask(BaseTask):

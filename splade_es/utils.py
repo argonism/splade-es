@@ -2,8 +2,9 @@ from pathlib import Path
 import json
 import logging
 import os
-from typing import Iterable, Any, Sequence
+from typing import Iterable, Any, Sequence, Generator
 
+from tqdm import tqdm
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
@@ -93,3 +94,51 @@ class ElasticsearchClient():
         )
 
         logger.info("complete index %s setup", self.index_name)
+
+
+class PartialFilesManager:
+    def __init__(self, file_dir: str, name: str = "partial", clear_cache: bool = False) -> None:
+        self.file_dir = Path(file_dir)
+        self.name = name
+        self._clear_cache = clear_cache
+
+        self._write_count = 0
+
+    def __enter__(self):
+        if not self.file_dir.exists():
+            self.file_dir.mkdir(parents=True, exist_ok=True)
+
+        if self._clear_cache:
+            self.clear_partial_files()
+            self._write_count = 0
+
+        if self._write_count != 0:
+            raise ValueError("write count is not 0. Please do not reuse this object")
+
+        logger.debug("Writing partial files to %s", self.file_dir)
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._write_count = 0
+
+    @property
+    def pathes(self):
+        return sorted(self.file_dir.iterdir(), key=lambda x: x.suffix)
+
+    def clear_partial_files(self) -> None:
+        for path in self.pathes:
+            path.unlink()
+
+    def yield_pathes(self) -> Generator[Path, None, None]:
+        pathes = self.pathes
+        for path in tqdm(pathes, total=len(pathes), desc="Yielding partial files"):
+            if path.is_file() and path.stem == self.name:
+                yield path
+
+    def new_file(self) -> Path:
+        path = self.file_dir / f"{self.name}.{self._write_count}"
+        if path.exists():
+            logger.warning("Found existing partial file %s", path)
+        self._write_count += 1
+        return path
