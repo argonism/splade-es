@@ -29,4 +29,4 @@ class BaseTask(Generic[G], gokart.TaskOnKart[G]):
         return self.output_dir_path / path
 
     def cache_path(self, relative_file_path: str) -> TargetOnKart:
-        return super().make_target(str(self.output_dir_path / relative_file_path))
+        return super().make_target(str(self.make_output_dir(relative_file_path)))

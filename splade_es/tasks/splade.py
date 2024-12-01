@@ -141,7 +141,7 @@ class SpladeSearchTask(SpladeESAccessTask):
     batch_size = luigi.IntParameter(default=250)
 
     def requires(self) -> TaskOnKart:
-        return SpladeIndexTask(rerun=self.rerun)
+        return SpladeIndexTask()
 
     def output(self) -> gokart.target.TargetOnKart:
         return self.cache_path(f"splade/{self.encoder_path}/{self.dataset}/search/{self.index_name}_{self.top_k}.pkl")
@@ -171,6 +171,7 @@ class SpladeSearchTask(SpladeESAccessTask):
         queries = dataset.queries
         queries = list(queries)
         search_result: dict[str, dict[str, float]] = {}
+        search_start_time = time.perf_counter()
         for batch_queries in tqdm(
             batched(queries, self.batch_size),
             total=len(queries) // self.batch_size,
@@ -193,14 +194,14 @@ class SpladeSearchTask(SpladeESAccessTask):
                     hit["_id"]: hit["_score"] for hit in response["hits"]["hits"]
                 }
 
+        search_end_time = time.perf_counter()
+        logger.info("Searching took %.2f seconds", search_end_time - search_start_time)
         logger.info("Retrieved %d search results", len(search_result))
 
-        print(f"search results len: {len(search_result)}")
         for i, qid in enumerate(search_result):
             if i >= 5:
                 break
             filtered_results = {k: v for k, v in list(search_result[qid].items())[:5]}
-            print(f"search result {qid}: {filtered_results}")
 
         self.dump(search_result)
 
@@ -213,7 +214,8 @@ class SpladeIndexTask(SpladeESAccessTask):
     index_batch_size = luigi.IntParameter(default=5_000)
 
     def requires(self) -> TaskOnKart:
-        return SpladeDictionalizeTask(rerun=self.rerun)
+        return SpladeDictionalizeTask(rerun=self.rerun, encoder_path=self.encoder_path)
+        # return SpladeDictionalizeTask()
 
     def _load_jsonl(self, jsonl_path: Path) -> Generator[dict, None, None]:
         with jsonl_path.open("r") as f:
@@ -279,6 +281,7 @@ def dictionalize_worker(path: Path, vocab_dict: dict[int, str]) -> list[dict[str
     for doc, term_weight in zip(docs, expand_terms_list):
         jsonl_line = doc.model_dump()
         jsonl_line[VECTOR_FIELD] = term_weight
+        jsonl_lines.append(jsonl_line)
     return jsonl_lines
 
 
@@ -289,7 +292,7 @@ class SpladeDictionalizeTask(BaseTask):
     encode_batch_size = luigi.IntParameter(default=32)
 
     def requires(self) -> TaskOnKart:
-        return SpladeEncodeTask()
+        return SpladeEncodeTask(rerun=self.rerun, encoder_path=self.encoder_path)
 
     def _output_dir(self) -> Path:
         return self.make_output_dir(f"splade/{self.encoder_path}/{self.dataset}/dictionalize")
@@ -317,18 +320,12 @@ class SpladeDictionalizeTask(BaseTask):
             with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as executor:
                 futures = []
                 for path in partial_files_manager.yield_pathes():
-                    # docs, model_outputs = torch.load(path)
-                    # terms_weights = splade_encoder.model_outputs_to_dict(model_outputs)
-                    # for doc, term_weight in zip(docs, terms_weights):
-                    #     jsonl_line = doc.model_dump()
-                    #     jsonl_line[VECTOR_FIELD] = term_weight
-                    #     f.write(json.dumps(jsonl_line, ensure_ascii=False) + "\n")
-                    #     write_count += 1
                     future = executor.submit(
                         dictionalize_worker,
                         path,
                         splade_encoder.vocab_dict,
                     )
+                    futures.append(future)
 
                 for future in as_completed(futures):
                     jsonl_lines = future.result()
@@ -336,9 +333,11 @@ class SpladeDictionalizeTask(BaseTask):
                         f.write(json.dumps(jsonl_line, ensure_ascii=False) + "\n")
                         write_count += 1
 
+
         self.dump((jsonl_path, write_count))
         end = time.perf_counter()
         logger.info("Dictionalize took %f seconds", end - start)
+        print("Dictionalize took %f seconds", end - start)
 
 
 class SpladeEncodeTask(BaseTask):
@@ -372,6 +371,7 @@ class SpladeEncodeTask(BaseTask):
         )
 
         partial_files_dir = Path(self.workspace_directory) / self._output_dir()
+        logger.info(f"Saving partial files to {partial_files_dir}")
         with PartialFilesManager(partial_files_dir) as partial_files_manager:
             for batch_docs in tqdm(
                 batched(dataset.corpus_iter(self.debug), self.corpus_load_batch_size),
