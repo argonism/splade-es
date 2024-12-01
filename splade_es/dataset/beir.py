@@ -189,3 +189,65 @@ class NQDoc(Doc):
 class NQ(BeirDataset, name="nq", doc_type=NQDoc):
     def __init__(self) -> None:
         super().__init__("beir/nq")
+
+
+class ClimateFeverDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class ClimateFever(BeirDataset, name="climate-fever", doc_type=ClimateFeverDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/climate-fever")
+
+
+class FeverDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class Fever(BeirDataset, name="fever", doc_type=FeverDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/fever/test")
+
+
+class DBpediaDoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+    url: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class DBpedia(BeirDataset, name="dbpedia-entity", doc_type=DBpediaDoc):
+    def __init__(self) -> None:
+        super().__init__("beir/dbpedia-entity/test")
+
+
+class HotpotQADoc(Doc):
+    doc_id: str
+    text: str
+    title: str
+    url: str
+
+    @property
+    def id(self):
+        return self.doc_id
+
+
+class HotpotQA(BeirDataset, name="hotpotqa", doc_type=HotpotQADoc):
+    def __init__(self) -> None:
+        super().__init__("beir/hotpotqa/test")

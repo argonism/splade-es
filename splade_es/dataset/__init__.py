@@ -11,6 +11,10 @@ from splade_es.dataset.beir import (
     SciFact,
     Touchev2,
     TrecCovid,
+    ClimateFever,
+    Fever,
+    HotpotQA,
+    DBpedia,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,7 +28,11 @@ DATASETS = {
     "quora": Quora,
     "fiqa": FiQA,
     "touche": Touchev2,
-    "nq": NQ
+    "nq": NQ,
+    "climate-fever": ClimateFever,
+    "fever": Fever,
+    "hotpotqa": HotpotQA,
+    "dbpedia": DBpedia,
 }
 
 
