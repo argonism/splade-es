@@ -108,28 +108,8 @@ class SpladeEncoder(object):
             model_outputs = self._encode_texts(texts, batch_size=batch_size)
             return model_outputs
 
-    # def _model_output_to_dict(self, model_output: torch.Tensor) -> dict[str, float]:
-    #     indexes = torch.nonzero(model_output, as_tuple=False).squeeze()
-    #     expand_terms = {}
-    #     for idx in indexes:
-    #         weight = model_output[idx].item()
-    #         if weight > 0:
-    #             token = self.vocab_dict[int(idx)]
-    #             # Ignore dot because elasticsearch does not support it
-    #             if token == ".":
-    #                 continue
-    #             expand_terms[token] = weight
-    #     return expand_terms
-
     def model_outputs_to_dict(self, model_outputs: torch.Tensor) -> list[dict[str, float]]:
         return dictionalize_model_outputs(model_outputs, self.vocab_dict)
-        # expand_terms_list: list[dict[str, float]] = []
-        # for model_output in model_outputs:
-        #     terms_weights = self._model_output_to_dict(model_output)
-
-        #     expand_terms_list.append(terms_weights)
-
-        # return expand_terms_list
 
     def encode_to_dict(self, texts: list[str], batch_size: int = 32) -> list[dict[str, float]]:
         model_outputs = self.encode_texts(texts, batch_size=batch_size)
