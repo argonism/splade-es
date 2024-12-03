@@ -8,6 +8,8 @@ import ranx
 from splade_es.tasks.base import BaseTask
 from splade_es.tasks.splade import SpladeSearchTask
 from splade_es.tasks.splade_doc import SpladeDocSearchTask
+from splade_es.tasks.splade_phrase import SpladePhraseSearchTask
+from splade_es.tasks.bm25 import BM25SearchTask
 from splade_es.dataset import get_dataset
 
 
@@ -15,6 +17,7 @@ class SearchModels(enum.Enum):
     BM25 = "bm25"
     SPLADE = "splade"
     SPLADE_DOC = "splade-doc"
+    SPLADE_PHRASE = "splade-phrase"
 
 
 def get_search_task(search_model: SearchModels) -> type[BaseTask]:
@@ -22,6 +25,10 @@ def get_search_task(search_model: SearchModels) -> type[BaseTask]:
         return SpladeSearchTask
     elif search_model == SearchModels.SPLADE_DOC:
         return SpladeDocSearchTask
+    elif search_model == SearchModels.SPLADE_PHRASE:
+        return SpladePhraseSearchTask
+    elif search_model == SearchModels.BM25:
+        return BM25SearchTask
     else:
         raise ValueError(f"Unknown search model: {search_model}")
 
@@ -31,7 +38,7 @@ class EvaluateTask(BaseTask):
     metrics = luigi.ListParameter(default=["ndcg", "ndcg@10", "ndcg@20", "recall", "recall@10", "recall@20"])
 
     def requires(self):
-        return get_search_task(self.search_model)(rerun=self.rerun)
+        return get_search_task(self.search_model)()
 
     @property
     def _output_dir(self) -> Path:

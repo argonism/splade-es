@@ -28,5 +28,8 @@ class BaseTask(Generic[G], gokart.TaskOnKart[G]):
     def make_output_dir(self, path: str | Path) -> Path:
         return self.output_dir_path / path
 
-    def cache_path(self, relative_file_path: str) -> TargetOnKart:
-        return super().make_target(str(self.make_output_dir(relative_file_path)))
+    def cache_path(self, relative_file_path: str, use_unique_id: bool = False) -> TargetOnKart:
+        return super().make_target(str(self.make_output_dir(relative_file_path)), use_unique_id=use_unique_id)
+
+    def workspace_path(self, relative_file_path: str) -> Path:
+        return Path(self.workspace_directory) / self.make_output_dir(relative_file_path)

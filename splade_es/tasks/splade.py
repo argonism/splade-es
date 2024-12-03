@@ -202,6 +202,7 @@ class SpladeSearchTask(SpladeESAccessTask):
             if i >= 5:
                 break
             filtered_results = {k: v for k, v in list(search_result[qid].items())[:5]}
+            print(f"search result {qid}: {filtered_results}")
 
         self.dump(search_result)
 
