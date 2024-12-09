@@ -8,6 +8,7 @@ from splade_es.tasks.evaluate import *
 from splade_es.tasks.splade import *
 from splade_es.tasks.splade_doc import *
 from splade_es.tasks.bm25 import *
+from splade_es.tasks.analyze import *
 
 if __name__ == "__main__":
     gokart.add_config("./conf/param.ini")
