@@ -118,7 +118,7 @@ class BM25SearchTask(BM25ESAccessTask):
             filtered_results = {k: v for k, v in list(search_result[qid].items())[:5]}
             print(f"search result {qid}: {filtered_results}")
 
-        self.dump(search_result)
+        self.dump((self.index_name, search_result))
 
 
 class BM25IndexTask(BM25ESAccessTask):
