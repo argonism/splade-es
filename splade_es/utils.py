@@ -46,26 +46,39 @@ def get_elasticsearch_client() -> Elasticsearch:
     return Elasticsearch(os.getenv("ELASTICSEARCH_URL", "http://localhost:9700"))
 
 
-class ElasticsearchClient():
+class ElasticsearchClient:
     def __init__(
-            self,
-            index_name: str,
-            dataset: DatasetBase,
-            index_schema: dict[str, dict]
-        ) -> None:
+        self, index_name: str, dataset: DatasetBase, index_schema: dict[str, dict]
+    ) -> None:
+        print(f"Creating Elasticsearch client with index {index_name}")
         self.client = get_elasticsearch_client()
         self.dataset = dataset
         self.index_schema = index_schema
         self.index_name = index_name
 
     def bulk(
-            self, operations: Iterable[dict], index: str, refresh: bool = False, reset_index: bool = False
-        ) -> tuple[int, int | list[dict[str, Any]]]:
+        self,
+        operations: Iterable[dict],
+        index: str,
+        refresh: bool = False,
+        reset_index: bool = False,
+    ) -> tuple[int, int | list[dict[str, Any]]]:
         self.setup_index(reset_index=reset_index)
         return bulk(self.client, operations, index=index, refresh=refresh)
 
     def msearch(self, searches: Sequence[dict]):
         return self.client.msearch(body=searches, index=self.index_name)
+
+    def get(self, id: str, index: str):
+        return self.client.get(index=index, id=id)
+
+    def mget(self, ids: Sequence[str], index: str) -> list[dict[str, Any]]:
+        def _produce_body(ids: Sequence) -> Generator[dict, None, None]:
+            for id_ in ids:
+                yield {"_id": id_, "_index": index}
+
+        docs = self.client.mget(index=index, docs=list(_produce_body(ids)))["docs"]
+        return [doc["_source"] for doc in docs if doc["found"]]
 
     def _make_properties(self) -> dict:
         properties = {}
@@ -97,7 +110,9 @@ class ElasticsearchClient():
 
 
 class PartialFilesManager:
-    def __init__(self, file_dir: str, name: str = "partial", clear_cache: bool = False) -> None:
+    def __init__(
+        self, file_dir: str, name: str = "partial", clear_cache: bool = False
+    ) -> None:
         self.file_dir = Path(file_dir)
         self.name = name
         self._clear_cache = clear_cache
