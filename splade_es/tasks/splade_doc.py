@@ -21,7 +21,12 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 from splade_es.dataset import Doc, get_dataset
 from splade_es.tasks.base import BaseTask
 from splade_es.utils import ElasticsearchClient, PartialFilesManager
-from splade_es.tasks.splade import SpladeIndexTask, SpladeEncoder, INDEX_SCHEMA, SpladeESAccessTask
+from splade_es.tasks.splade import (
+    SpladeIndexTask,
+    SpladeEncoder,
+    INDEX_SCHEMA,
+    SpladeESAccessTask,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -37,13 +42,17 @@ class SpladeDocSearchTask(SpladeESAccessTask):
     batch_size = luigi.IntParameter(default=250)
 
     def requires(self) -> TaskOnKart:
-        return SpladeIndexTask(encoder_path=self.encoder_path)
+        return SpladeDocIndexTask(encoder_path=self.encoder_path, rerun=self.rerun)
 
     def output(self) -> gokart.target.TargetOnKart:
-        return self.cache_path(f"splade/{self.encoder_path}/{self.dataset}/search/{self.index_name}_{self.top_k}.pkl")
+        return self.cache_path(
+            f"splade-doc/{self.encoder_path}/{self.dataset}/search/{self.index_name}_{self.top_k}.pkl"
+        )
 
     def run(self):
-        def yield_query(index_name: str, query_vectors: Iterable[dict[str, float]], size: int = 100):
+        def yield_query(
+            index_name: str, query_vectors: Iterable[dict[str, float]], size: int = 100
+        ):
             for query in query_vectors:
                 yield {"index": index_name}
                 yield {
@@ -55,11 +64,10 @@ class SpladeDocSearchTask(SpladeESAccessTask):
                     },
                     "size": size,
                 }
+
         splade_index = self.load()
         dataset = get_dataset(self.dataset)
-        splade_encoder = SpladeEncoder(
-            encoder_path=self.encoder_path, device="cpu"
-        )
+        splade_encoder = SpladeEncoder(encoder_path=self.encoder_path, device="cpu")
 
         es_client = ElasticsearchClient(splade_index, dataset, INDEX_SCHEMA)
 
@@ -72,7 +80,9 @@ class SpladeDocSearchTask(SpladeESAccessTask):
             total=len(queries) // self.batch_size,
             desc="Searching",
         ):
-            tokenized_texts = splade_encoder.tokenize([query.text for query in batch_queries])
+            tokenized_texts = splade_encoder.tokenize(
+                [query.text for query in batch_queries]
+            )
 
             # Set term weights to 1 for all tokens in the query
             term_weights: list[dict[str, float]] = []
@@ -107,3 +117,16 @@ class SpladeDocSearchTask(SpladeESAccessTask):
             filtered_results = {k: v for k, v in list(search_result[qid].items())[:5]}
 
         self.dump(search_result)
+
+
+class SpladeDocIndexTask(SpladeIndexTask):
+    dataset = luigi.Parameter()
+    encoder_path = luigi.Parameter()
+    suffix = luigi.Parameter(default="")
+
+    index_batch_size = luigi.IntParameter(default=5_000)
+
+    def output(self) -> gokart.target.TargetOnKart:
+        return self.cache_path(
+            f"splade-doc/{self.encoder_path}/{self.dataset}/index/{self.index_name}.txt"
+        )
