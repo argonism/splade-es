@@ -22,11 +22,13 @@ class BeirDataset(DatasetBase, name="beir", doc_type=Doc):
         self.query_fields = query_type.model_fields
 
     def corpus_iter(self, debug: bool = False) -> Generator[Doc, None, None]:
-        for i, doc in enumerate(tqdm(
-            self.dataset.docs_iter(),
-            total=DEBUG_CORPUS_SIZE if debug else self.dataset.docs_count(),
-            desc=f"{self.dataset_key} corpus iter:",
-        )):
+        for i, doc in enumerate(
+            tqdm(
+                self.dataset.docs_iter(),
+                total=DEBUG_CORPUS_SIZE if debug else self.dataset.docs_count(),
+                desc=f"{self.dataset_key} corpus iter:",
+            )
+        ):
             if debug and i >= DEBUG_CORPUS_SIZE:
                 break
 

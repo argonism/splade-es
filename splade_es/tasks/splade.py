@@ -40,8 +40,9 @@ INDEX_SCHEMA = {
 }
 
 
-
-def dictionalize_model_outputs(model_outputs: torch.Tensor, vocab_dict: dict[int, str]) -> list[dict[str, float]]:
+def dictionalize_model_outputs(
+    model_outputs: torch.Tensor, vocab_dict: dict[int, str]
+) -> list[dict[str, float]]:
     expand_terms_list: list[dict[str, float]] = []
     for model_output in model_outputs:
         indexes = torch.nonzero(model_output, as_tuple=False).squeeze()
@@ -61,9 +62,7 @@ def dictionalize_model_outputs(model_outputs: torch.Tensor, vocab_dict: dict[int
 
 
 class SpladeEncoder(object):
-    def __init__(
-        self, encoder_path: str, device: str, verbose: bool = True
-    ) -> None:
+    def __init__(self, encoder_path: str, device: str, verbose: bool = True) -> None:
         self.splade = AutoModelForMaskedLM.from_pretrained(encoder_path)
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_path)
         self.vocab_dict = {v: k for k, v in self.tokenizer.get_vocab().items()}
@@ -108,12 +107,17 @@ class SpladeEncoder(object):
             model_outputs = self._encode_texts(texts, batch_size=batch_size)
             return model_outputs
 
-    def model_outputs_to_dict(self, model_outputs: torch.Tensor) -> list[dict[str, float]]:
+    def model_outputs_to_dict(
+        self, model_outputs: torch.Tensor
+    ) -> list[dict[str, float]]:
         return dictionalize_model_outputs(model_outputs, self.vocab_dict)
 
-    def encode_to_dict(self, texts: list[str], batch_size: int = 32) -> list[dict[str, float]]:
+    def encode_to_dict(
+        self, texts: list[str], batch_size: int = 32
+    ) -> list[dict[str, float]]:
         model_outputs = self.encode_texts(texts, batch_size=batch_size)
         return self.model_outputs_to_dict(model_outputs)
+
 
 class SpladeESAccessTask(BaseTask):
     dataset = luigi.Parameter()
@@ -144,10 +148,14 @@ class SpladeSearchTask(SpladeESAccessTask):
         return SpladeIndexTask()
 
     def output(self) -> gokart.target.TargetOnKart:
-        return self.cache_path(f"splade/{self.encoder_path}/{self.dataset}/search/{self.index_name}_{self.top_k}.pkl")
+        return self.cache_path(
+            f"splade/{self.encoder_path}/{self.dataset}/search/{self.index_name}_{self.top_k}.pkl"
+        )
 
     def run(self):
-        def yield_query(index_name: str, query_vectors: Iterable[dict[str, float]], size: int = 100):
+        def yield_query(
+            index_name: str, query_vectors: Iterable[dict[str, float]], size: int = 100
+        ):
             for query in query_vectors:
                 yield {"index": index_name}
                 yield {
@@ -162,9 +170,7 @@ class SpladeSearchTask(SpladeESAccessTask):
 
         splade_index = self.load()
         dataset = get_dataset(self.dataset)
-        splade_encoder = SpladeEncoder(
-            encoder_path=self.encoder_path, device="cpu"
-        )
+        splade_encoder = SpladeEncoder(encoder_path=self.encoder_path, device="cpu")
 
         es_client = ElasticsearchClient(splade_index, dataset, INDEX_SCHEMA)
 
@@ -177,7 +183,9 @@ class SpladeSearchTask(SpladeESAccessTask):
             total=len(queries) // self.batch_size,
             desc="Searching",
         ):
-            term_weights = splade_encoder.encode_to_dict([query.text for query in batch_queries])
+            term_weights = splade_encoder.encode_to_dict(
+                [query.text for query in batch_queries]
+            )
 
             es_res = es_client.msearch(
                 searches=yield_query(splade_index, term_weights, size=self.top_k)
@@ -204,7 +212,7 @@ class SpladeSearchTask(SpladeESAccessTask):
             filtered_results = {k: v for k, v in list(search_result[qid].items())[:5]}
             print(f"search result {qid}: {filtered_results}")
 
-        self.dump(search_result)
+        self.dump((splade_index, search_result))
 
 
 class SpladeIndexTask(SpladeESAccessTask):
@@ -224,7 +232,9 @@ class SpladeIndexTask(SpladeESAccessTask):
                 yield json.loads(line)
 
     def output(self) -> gokart.target.TargetOnKart:
-        return self.cache_path(f"splade/{self.encoder_path}/{self.dataset}/index/{self.index_name}.txt")
+        return self.cache_path(
+            f"splade/{self.encoder_path}/{self.dataset}/index/{self.index_name}.txt"
+        )
 
     def run(self):
         def _make_bulk_insert_body(
@@ -244,7 +254,11 @@ class SpladeIndexTask(SpladeESAccessTask):
                             logger.warning("%s does not have %s field", doc, field)
                             raise ValueError(f"{doc} does not have {field} field")
                         doc_fields[field] = doc[field]
-                yield {"_index": self.index_name, "_id": doc["doc_id"], "_source": doc_fields}
+                yield {
+                    "_index": self.index_name,
+                    "_id": doc["doc_id"],
+                    "_source": doc_fields,
+                }
 
         dataset = get_dataset(self.dataset)
         jsonl_path, write_count = self.load()
@@ -256,25 +270,27 @@ class SpladeIndexTask(SpladeESAccessTask):
             for batched_entries in tqdm(
                 batched(self._load_jsonl(jsonl_path), self.index_batch_size),
                 total=write_count // self.index_batch_size,
-                desc="Indexing to Elasticsearch"
+                desc="Indexing to Elasticsearch",
             ):
                 logger.info("Indexing %d entries", len(batched_entries))
                 success, _ = es_client.bulk(
                     operations=_make_bulk_insert_body(batched_entries),
                     index=self.index_name,
-                    reset_index=True
+                    reset_index=True,
                 )
                 num_indexed += success
         except BulkIndexError as e:
             logger.error("BulkIndexError")
             logger.error("errors: %s", e.errors[0])
-            logger.error("errors: %s", e.errors[0]['index']['error'])
+            logger.error("errors: %s", e.errors[0]["index"]["error"])
             raise e
 
         self.dump(self.index_name)
 
 
-def dictionalize_worker(path: Path, vocab_dict: dict[int, str]) -> list[dict[str, float]]:
+def dictionalize_worker(
+    path: Path, vocab_dict: dict[int, str]
+) -> list[dict[str, float]]:
     docs, model_outputs = torch.load(path)
     expand_terms_list = dictionalize_model_outputs(model_outputs, vocab_dict)
 
@@ -296,7 +312,9 @@ class SpladeDictionalizeTask(BaseTask):
         return SpladeEncodeTask(rerun=self.rerun, encoder_path=self.encoder_path)
 
     def _output_dir(self) -> Path:
-        return self.make_output_dir(f"splade/{self.encoder_path}/{self.dataset}/dictionalize")
+        return self.make_output_dir(
+            f"splade/{self.encoder_path}/{self.dataset}/dictionalize"
+        )
 
     def output(self):
         return self.make_target(self._output_dir() / "output.pkl")
@@ -307,9 +325,7 @@ class SpladeDictionalizeTask(BaseTask):
     def run(self):
         start = time.perf_counter()
         partial_files_manager: PartialFilesManager = self.load()
-        splade_encoder = SpladeEncoder(
-            encoder_path=self.encoder_path, device="cpu"
-        )
+        splade_encoder = SpladeEncoder(encoder_path=self.encoder_path, device="cpu")
 
         jsonl_path = self.data_path() / "data.jsonl"
         if not jsonl_path.parent.exists():
@@ -318,7 +334,9 @@ class SpladeDictionalizeTask(BaseTask):
         write_count = 0
         with jsonl_path.open("w") as f:
             max_workers = 24
-            with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as executor:
+            with ProcessPoolExecutor(
+                max_workers=max_workers, mp_context=mp.get_context("spawn")
+            ) as executor:
                 futures = []
                 for path in partial_files_manager.yield_pathes():
                     future = executor.submit(
@@ -333,7 +351,6 @@ class SpladeDictionalizeTask(BaseTask):
                     for jsonl_line in jsonl_lines:
                         f.write(json.dumps(jsonl_line, ensure_ascii=False) + "\n")
                         write_count += 1
-
 
         self.dump((jsonl_path, write_count))
         end = time.perf_counter()
@@ -377,7 +394,7 @@ class SpladeEncodeTask(BaseTask):
             for batch_docs in tqdm(
                 batched(dataset.corpus_iter(self.debug), self.corpus_load_batch_size),
                 total=dataset.docs_count // self.corpus_load_batch_size,
-                desc="SPLADE Encoding"
+                desc="SPLADE Encoding",
             ):
                 encodable_texts = self._get_text_for_encode(batch_docs)
                 model_outputs = splade_encoder.encode_texts(encodable_texts)
