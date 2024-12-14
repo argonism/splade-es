@@ -10,7 +10,7 @@ from tqdm import tqdm
 from mdfy import MdTable
 
 from splade_es.tasks.base import BaseTask
-from splade_es.tasks.splade import SpladeSearchTask
+from splade_es.tasks.splade import SpladeSearchTask, SpladeEncoder
 from splade_es.tasks.splade_doc import SpladeDocSearchTask
 from splade_es.tasks.splade_phrase import (
     SpladePhraseBoostSearchTask,
@@ -127,7 +127,7 @@ class EnrichedEvalResultDoc(BaseModel):
             return super().iterencode(o, **kwargs)
 
     doc: dict
-    rel: int
+    rel: int | None
     score: float
     rank: int
 
@@ -210,7 +210,7 @@ class EnrichQueryWiseEvalResultTask(BaseTask):
                 enriched_docs = [
                     EnrichedEvalResultDoc(
                         doc=docs[docid],
-                        rel=doc_rel[docid] if docid in doc_rel else 0,
+                        rel=doc_rel[docid] if docid in doc_rel else None,
                         score=score,
                         rank=rank,
                     )
@@ -233,5 +233,58 @@ class EnrichQueryWiseEvalResultTask(BaseTask):
                 enriched_queries=enriched_eval_result,
                 metrics=eval_result.metrics,
                 index_name=index_name[0],
+            )
+        )
+
+
+class SpladeEnrichedEvalResultQuery(EnrichedEvalResultQuery):
+    splade_query_vector: dict[str, float]
+
+
+class SpladeEnrichedEvalResult(EnrichedEvalResult):
+    enriched_queries: dict[str, list[SpladeEnrichedEvalResultQuery]]
+
+
+class EnrichSpladeQueryResultTask(BaseTask):
+    dataset = luigi.Parameter()
+    search_model = luigi.EnumParameter(enum=SearchModels)
+
+    encoder_path = luigi.Parameter()
+
+    def requires(self):
+        return EnrichQueryWiseEvalResultTask(
+            dataset=self.dataset, search_model=self.search_model
+        )
+
+    def output(self):
+        return self.cache_path(
+            f"{self.search_model.value}/{self.dataset}/enriched_evaluate_by_query.pkl"
+        )
+
+    def run(self):
+        result = self.load()
+        eval_result: EnrichedEvalResult = result["eval_result"]
+        splade_encoder = SpladeEncoder(encoder_path=self.encoder_path, device="cpu")
+
+        metrics_splade_enriched_queries: dict[
+            str, list[SpladeEnrichedEvalResultQuery]
+        ] = {}
+        for metric, enriched_queries in eval_result.enriched_queries.items():
+            splade_enriched_queries = []
+            for enriched_query in enriched_queries:
+                query = enriched_query.query
+                splade_dict = splade_encoder.encode_to_dict(query.text)
+
+                splade_enriched_query = SpladeEnrichedEvalResultQuery(
+                    **enriched_query.model_dump(), splade_query_vector=splade_dict
+                )
+                splade_enriched_queries.append(splade_enriched_query)
+            metrics_splade_enriched_queries[metric] = splade_enriched_queries
+
+        self.dump(
+            SpladeEnrichedEvalResult(
+                enriched_queries=metrics_splade_enriched_queries,
+                metrics=eval_result.metrics,
+                index_name=eval_result.index_name,
             )
         )
