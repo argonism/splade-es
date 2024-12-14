@@ -145,7 +145,7 @@ class SpladeSearchTask(SpladeESAccessTask):
     batch_size = luigi.IntParameter(default=250)
 
     def requires(self) -> TaskOnKart:
-        return SpladeIndexTask()
+        return SpladeIndexTask(encoder_path=self.encoder_path)
 
     def output(self) -> gokart.target.TargetOnKart:
         return self.cache_path(
@@ -223,7 +223,7 @@ class SpladeIndexTask(SpladeESAccessTask):
     index_batch_size = luigi.IntParameter(default=5_000)
 
     def requires(self) -> TaskOnKart:
-        return SpladeDictionalizeTask(rerun=self.rerun, encoder_path=self.encoder_path)
+        return SpladeDictionalizeTask(encoder_path=self.encoder_path)
         # return SpladeDictionalizeTask()
 
     def _load_jsonl(self, jsonl_path: Path) -> Generator[dict, None, None]:
@@ -263,6 +263,7 @@ class SpladeIndexTask(SpladeESAccessTask):
         dataset = get_dataset(self.dataset)
         jsonl_path, write_count = self.load()
         es_client = ElasticsearchClient(self.index_name, dataset, INDEX_SCHEMA)
+        es_client.setup_index(reset_index=True)
 
         logger.info("Indexing to index %s", self.index_name)
         num_indexed = 0
@@ -276,7 +277,6 @@ class SpladeIndexTask(SpladeESAccessTask):
                 success, _ = es_client.bulk(
                     operations=_make_bulk_insert_body(batched_entries),
                     index=self.index_name,
-                    reset_index=True,
                 )
                 num_indexed += success
         except BulkIndexError as e:
