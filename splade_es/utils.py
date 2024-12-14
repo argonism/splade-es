@@ -43,7 +43,9 @@ def dump_to_json(dict: dict, path: Path, indent: int = 2) -> None:
 
 
 def get_elasticsearch_client() -> Elasticsearch:
-    return Elasticsearch(os.getenv("ELASTICSEARCH_URL", "http://localhost:9700"))
+    url = os.getenv("ELASTICSEARCH_URL", "http://localhost:9700")
+    print(f"Connecting to Elasticsearch at {url}")
+    return Elasticsearch(url)
 
 
 class ElasticsearchClient:
@@ -63,7 +65,8 @@ class ElasticsearchClient:
         refresh: bool = False,
         reset_index: bool = False,
     ) -> tuple[int, int | list[dict[str, Any]]]:
-        self.setup_index(reset_index=reset_index)
+        if reset_index:
+            self.setup_index(reset_index=reset_index)
         return bulk(self.client, operations, index=index, refresh=refresh)
 
     def msearch(self, searches: Sequence[dict]):
